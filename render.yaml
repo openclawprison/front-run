@@ -1,0 +1,70 @@
+services:
+  - type: web
+    name: front-run
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: front-run-db
+          property: connectionString
+      - key: INGEST_SECRET
+        generateValue: true
+      - key: X_BEARER_TOKEN
+        sync: false
+      - key: X_WOEIDS
+        value: "23424977"
+      - key: X_COUNT_ENRICH_LIMIT
+        value: "12"
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: YOUTUBE_REGIONS
+        value: US
+      - key: BRIGHTDATA_API_TOKEN
+        sync: false
+      - key: TIKTOK_QUERY_LIMIT
+        value: "6"
+      - key: TIKTOK_POSTS_PER_QUERY
+        value: "20"
+      - key: TIKTOK_SEED_QUERIES
+        value: america viral,usa meme,usa challenge
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+
+  - type: cron
+    name: front-run-ingest
+    runtime: node
+    plan: starter
+    region: singapore
+    schedule: "*/5 * * * *"
+    buildCommand: npm ci
+    startCommand: npm run cron:ingest
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: FRONT_RUN_HOSTPORT
+        fromService:
+          type: web
+          name: front-run
+          property: hostport
+      - key: INGEST_SECRET
+        fromService:
+          type: web
+          name: front-run
+          envVarKey: INGEST_SECRET
+
+databases:
+  - name: front-run-db
+    plan: free
+    region: singapore
+    databaseName: front_run
+    user: front_run
+    ipAllowList: []
