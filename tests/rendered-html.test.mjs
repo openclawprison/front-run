@@ -28,8 +28,10 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(layout, /Front Run — Early Signal Intelligence/);
   assert.match(route, /readOrRefreshTrends/);
   assert.match(engine, /trends\.google\.com\/trending\/rss/);
-  assert.match(engine, /api\.x\.com\/2\/tweets\/counts\/recent/);
-  assert.match(engine, /api\.x\.com\/2\/tweets\/search\/recent/);
+  assert.match(engine, /api\.twitterapi\.io\/twitter\/tweet\/advanced_search/);
+  assert.match(engine, /TWITTERAPI_MONTHLY_BUDGET_USD/);
+  assert.match(engine, /scope: "sample"/);
+  assert.doesNotMatch(engine, /api\.x\.com/);
   assert.match(engine, /Animal watch/);
   assert.match(engine, /Technology watch/);
   assert.match(engine, /Know Your Meme coverage/);
@@ -46,14 +48,14 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /frontend-api-v3\.pump\.fun/);
   assert.match(engine, /sourcePriorityWeight/);
   assert.match(engine, /shortTrendTitle/);
-  assert.match(engine, /top-post links/);
-  assert.match(engine, /23424977/);
+  assert.match(engine, /leading-post links/);
   assert.match(engine, /const regions = \["US"\]/);
   assert.match(engine, /gd_lu702nij2f790tmv9h/);
   assert.match(blueprint, /healthCheckPath: \/api\/health/);
   assert.match(blueprint, /schedule: "\*\/5 \* \* \* \*"/);
-  assert.match(blueprint, /X_POSTS_PER_TREND/);
-  assert.match(blueprint, /PUMPFUN_X_ENRICH_LIMIT/);
+  assert.match(blueprint, /TWITTERAPI_IO_KEY/);
+  assert.match(blueprint, /TWITTERAPI_MONTHLY_BUDGET_USD/);
+  assert.match(blueprint, /TWITTERAPI_SAMPLE_INTERVAL_MINUTES/);
 });
 
 test("includes Render, storage, environment, and preview assets", async () => {

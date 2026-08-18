@@ -1,5 +1,5 @@
 import { buildTrendsPayload } from "./trend-engine";
-import { ensureTrendTables, getCachedPayload, getRecentHistory, getTrendDatabase, persistPayload } from "./trend-store";
+import { ensureTrendTables, getCachedPayload, getRecentHistory, getTrendDatabase, getTwitterApiMonthlyUsage, persistPayload, recordTwitterApiUsage } from "./trend-store";
 import type { TrendsPayload } from "./trend-types";
 
 const CACHE_MAX_AGE_MS = 4 * 60_000;
@@ -26,8 +26,16 @@ export async function readOrRefreshTrends(options: { force?: boolean } = {}): Pr
 
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
-      const history = await getRecentHistory(db);
-      const payload = await buildTrendsPayload(history);
+      const [history, previousPayload, twitterApiUsage] = await Promise.all([
+        getRecentHistory(db),
+        getCachedPayload(db, Number.POSITIVE_INFINITY),
+        getTwitterApiMonthlyUsage(db),
+      ]);
+      const payload = await buildTrendsPayload(history, {
+        previousPayload,
+        twitterApiUsage,
+        recordTwitterApiUsage: (billablePosts, queryCount) => recordTwitterApiUsage(db, billablePosts, queryCount),
+      });
       await persistPayload(db, payload);
       return payload;
     })().finally(() => {

@@ -8,6 +8,12 @@ export type HistoricalSnapshot = {
   score: number;
 };
 
+export type TwitterApiMonthlyUsage = {
+  billablePosts: number;
+  queryCount: number;
+  lastUsedAt?: string;
+};
+
 let client: Sql | null = null;
 
 export function getTrendDatabase(): Sql | null {
@@ -58,7 +64,40 @@ export async function ensureTrendTables(db: Sql) {
     await tx`CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status_completed ON ingestion_runs(status, completed_at DESC)`;
     await tx`CREATE INDEX IF NOT EXISTS idx_trend_snapshots_trend_time ON trend_snapshots(trend_id, observed_at DESC)`;
     await tx`CREATE INDEX IF NOT EXISTS idx_trend_snapshots_time ON trend_snapshots(observed_at DESC)`;
+    await tx`CREATE TABLE IF NOT EXISTS twitterapi_usage (
+      id BIGSERIAL PRIMARY KEY,
+      observed_at TIMESTAMPTZ NOT NULL,
+      query_count INTEGER NOT NULL,
+      billable_posts INTEGER NOT NULL
+    )`;
+    await tx`CREATE INDEX IF NOT EXISTS idx_twitterapi_usage_time ON twitterapi_usage(observed_at DESC)`;
   });
+}
+
+export async function getTwitterApiMonthlyUsage(db: Sql, now = new Date()): Promise<TwitterApiMonthlyUsage> {
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const rows = await db<{ billable_posts: string | number; query_count: string | number; last_used_at: string | null }[]>`
+    SELECT
+      COALESCE(SUM(billable_posts), 0) AS billable_posts,
+      COALESCE(SUM(query_count), 0) AS query_count,
+      MAX(observed_at) AS last_used_at
+    FROM twitterapi_usage
+    WHERE observed_at >= ${monthStart}
+  `;
+  const row = rows[0];
+  return {
+    billablePosts: Number(row?.billable_posts ?? 0),
+    queryCount: Number(row?.query_count ?? 0),
+    lastUsedAt: row?.last_used_at ? new Date(row.last_used_at).toISOString() : undefined,
+  };
+}
+
+export async function recordTwitterApiUsage(db: Sql, billablePosts: number, queryCount: number, observedAt = new Date()) {
+  if (billablePosts <= 0 || queryCount <= 0) return;
+  await db`
+    INSERT INTO twitterapi_usage (observed_at, query_count, billable_posts)
+    VALUES (${observedAt}, ${queryCount}, ${billablePosts})
+  `;
 }
 
 export async function getCachedPayload(db: Sql, maxAgeMs: number): Promise<TrendsPayload | null> {

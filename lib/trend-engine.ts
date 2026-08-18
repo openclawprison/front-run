@@ -1,4 +1,4 @@
-import type { HistoricalSnapshot } from "./trend-store";
+import type { HistoricalSnapshot, TwitterApiMonthlyUsage } from "./trend-store";
 import { applyHistory } from "./trend-store";
 import { TREND_TAXONOMY } from "./trend-types";
 import type { NewsItem, Phase, PlatformMetric, PumpCoin, PumpCoinBucket, SourceStatus, Trend, TrendEvidence, TrendsPayload, WindowValues } from "./trend-types";
@@ -6,10 +6,11 @@ import type { NewsItem, Phase, PlatformMetric, PumpCoin, PumpCoinBucket, SourceS
 type RuntimeEnv = {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
-  X_BEARER_TOKEN?: string;
-  X_WOEIDS?: string;
-  X_COUNT_ENRICH_LIMIT?: string;
-  X_POSTS_PER_TREND?: string;
+  TWITTERAPI_IO_KEY?: string;
+  TWITTERAPI_MONTHLY_BUDGET_USD?: string;
+  TWITTERAPI_SAMPLE_INTERVAL_MINUTES?: string;
+  TWITTERAPI_QUERY_LIMIT?: string;
+  TWITTERAPI_CACHE_HOURS?: string;
   YOUTUBE_API_KEY?: string;
   YOUTUBE_REGIONS?: string;
   BRIGHTDATA_API_TOKEN?: string;
@@ -18,7 +19,12 @@ type RuntimeEnv = {
   TIKTOK_SEED_QUERIES?: string;
   PUMPFUN_LIMIT?: string;
   PUMPFUN_ENRICH_LIMIT?: string;
-  PUMPFUN_X_ENRICH_LIMIT?: string;
+};
+
+export type BuildTrendsOptions = {
+  previousPayload?: TrendsPayload | null;
+  twitterApiUsage?: TwitterApiMonthlyUsage;
+  recordTwitterApiUsage?: (billablePosts: number, queryCount: number) => Promise<void>;
 };
 
 type SourceKey = "google" | "news" | "publisher" | "kym" | "hackernews" | "x" | "youtube" | "tiktok";
@@ -240,7 +246,7 @@ function memeXSearchEvidence(title: string): TrendEvidence {
     source: "X search",
     title: `Search X for “${shortTrendTitle(title)}”`,
     url: `https://x.com/search?q=${encodeURIComponent(`"${shortTrendTitle(title)}" lang:en`)}`,
-    detail: "Discovery link only · exact counts and leading posts require working X API access",
+    detail: "Direct X discovery link · sampled leading posts appear when the cost-controlled X check runs",
   };
 }
 
@@ -409,26 +415,29 @@ async function collectHackerNews(): Promise<CollectorResult> {
   }
 }
 
-type XTrendResponse = { data?: Array<{ trend_name: string; tweet_count?: number }> };
-type XCountResponse = { data?: Array<{ start: string; end: string; tweet_count: number }> };
-type XPost = {
+type TwitterApiPost = {
   id: string;
+  url?: string;
   text: string;
-  author_id?: string;
-  created_at?: string;
-  public_metrics?: { retweet_count?: number; reply_count?: number; like_count?: number; quote_count?: number };
+  createdAt?: string;
+  retweetCount?: number;
+  replyCount?: number;
+  likeCount?: number;
+  quoteCount?: number;
+  viewCount?: number;
+  author?: { userName?: string; name?: string; followers?: number; isBlueVerified?: boolean };
 };
-type XSearchResponse = {
-  data?: XPost[];
-  includes?: { users?: Array<{ id: string; username: string; name?: string; verified?: boolean }> };
-};
+type TwitterApiSearchResponse = { tweets?: TwitterApiPost[]; has_next_page?: boolean; next_cursor?: string };
 
-function platformWindowsFromBuckets(buckets: Array<{ end: string; tweet_count: number }>, now = Date.now()): WindowValues {
+function twitterApiSampleWindows(posts: TwitterApiPost[], now = Date.now()): WindowValues {
   const durations: Record<keyof WindowValues, number> = { "5m": 5, "30m": 30, "60m": 60, "6h": 360, "24h": 1440 };
   return Object.fromEntries(
     Object.entries(durations).map(([key, minutes]) => [
       key,
-      buckets.filter((bucket) => new Date(bucket.end).getTime() >= now - minutes * 60_000).reduce((sum, bucket) => sum + bucket.tweet_count, 0),
+      posts.filter((post) => {
+        const createdAt = new Date(post.createdAt ?? "").getTime();
+        return Number.isFinite(createdAt) && createdAt >= now - minutes * 60_000;
+      }).length,
     ]),
   ) as WindowValues;
 }
@@ -444,7 +453,7 @@ function xCountQuery(trendName: string) {
   const domainTerms = tokens(cleaned).filter((word) => topicTerms.has(word));
   const allTerms = tokens(cleaned);
   const words = [...new Set([...domainTerms, ...allCapsTerms, ...capitalizedTerms, ...allTerms])].slice(0, 5);
-  return `${words.join(" ") || normalize(cleaned)} lang:en -is:retweet`;
+  return `${words.join(" ") || normalize(cleaned)} lang:en -filter:retweets`;
 }
 
 async function collectPublisherNews(): Promise<CollectorResult> {
@@ -511,64 +520,38 @@ async function collectPublisherNews(): Promise<CollectorResult> {
   };
 }
 
-async function collectXWindowCounts(trendName: string, query = xCountQuery(trendName)): Promise<WindowValues> {
+function twitterApiPostEngagement(post: TwitterApiPost) {
+  return Number(post.likeCount ?? 0) + Number(post.retweetCount ?? 0) * 2 + Number(post.quoteCount ?? 0) * 2 + Number(post.replyCount ?? 0);
+}
+
+async function collectTwitterApiSample(trendName: string) {
   const now = Date.now();
-  const params = new URLSearchParams({
-    query,
-    granularity: "minute",
-    start_time: new Date(now - 24 * 60 * 60_000).toISOString(),
-    end_time: new Date(now - 15_000).toISOString(),
-  });
-  const response = await fetchJson<XCountResponse>(`https://api.x.com/2/tweets/counts/recent?${params}`, {
-    headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` },
-  });
-  return platformWindowsFromBuckets(response.data ?? [], now);
-}
-
-function xPostEngagement(post: XPost) {
-  const metrics = post.public_metrics;
-  return Number(metrics?.like_count ?? 0) + Number(metrics?.retweet_count ?? 0) * 2 + Number(metrics?.quote_count ?? 0) * 2 + Number(metrics?.reply_count ?? 0);
-}
-
-async function collectXTopPosts(trendName: string, query = xCountQuery(trendName)): Promise<{ evidence: TrendEvidence[]; newest?: string; engagement: number }> {
-  const maxResults = clamp(Number(runtime.X_POSTS_PER_TREND ?? 10) || 10, 10, 25);
-  const params = new URLSearchParams({
-    query,
-    max_results: String(maxResults),
-    sort_order: "relevancy",
-    "tweet.fields": "created_at,public_metrics,author_id",
-    expansions: "author_id",
-    "user.fields": "username,name,verified",
-  });
-  const response = await fetchJson<XSearchResponse>(`https://api.x.com/2/tweets/search/recent?${params}`, {
-    headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` },
-  });
-  const users = new Map((response.includes?.users ?? []).map((user) => [user.id, user]));
-  const ranked = [...(response.data ?? [])].filter((post) => xPostEngagement(post) > 0).sort((a, b) => xPostEngagement(b) - xPostEngagement(a)).slice(0, 3);
-  const evidence = ranked.map((post) => {
-    const user = post.author_id ? users.get(post.author_id) : undefined;
-    const username = user?.username || "i";
-    const metrics = post.public_metrics;
+  const query = `${xCountQuery(trendName)} since_time:${Math.floor((now - 24 * 60 * 60_000) / 1000)} until_time:${Math.floor((now - 15_000) / 1000)}`;
+  const params = new URLSearchParams({ query, queryType: "Top" });
+  const response = await fetchJson<TwitterApiSearchResponse>(`https://api.twitterapi.io/twitter/tweet/advanced_search?${params}`, {
+    headers: { "X-API-Key": runtime.TWITTERAPI_IO_KEY! },
+  }, 18_000);
+  const unique = [...new Map((response.tweets ?? []).filter((post) => post.id && post.text).map((post) => [post.id, post])).values()].slice(0, 20);
+  const ranked = [...unique].sort((a, b) => twitterApiPostEngagement(b) - twitterApiPostEngagement(a));
+  const evidence = ranked.slice(0, 3).map((post) => {
+    const username = post.author?.userName || "i";
     return {
-      source: user?.username ? `X · @${user.username}` : "X",
+      source: post.author?.userName ? `X · @${post.author.userName}` : "X",
       title: post.text.replace(/\s+/g, " ").trim().slice(0, 160),
-      url: `https://x.com/${username}/status/${post.id}`,
-      detail: `${Number(metrics?.like_count ?? 0).toLocaleString()} likes · ${Number(metrics?.retweet_count ?? 0).toLocaleString()} reposts · ${Number(metrics?.reply_count ?? 0).toLocaleString()} replies`,
-    };
+      url: safeExternalUrl(post.url) || `https://x.com/${username}/status/${post.id}`,
+      detail: `${Number(post.likeCount ?? 0).toLocaleString()} likes · ${Number(post.retweetCount ?? 0).toLocaleString()} reposts · ${Number(post.replyCount ?? 0).toLocaleString()} replies`,
+    } satisfies TrendEvidence;
   });
+  const authors = new Set(unique.map((post) => post.author?.userName).filter(Boolean));
   return {
+    windows: twitterApiSampleWindows(unique, now),
     evidence,
-    newest: ranked.map((post) => post.created_at).filter((value): value is string => Boolean(value)).sort().at(-1),
-    engagement: ranked.reduce((sum, post) => sum + xPostEngagement(post), 0),
-  };
-}
-
-async function collectXSignal(trendName: string, query = xCountQuery(trendName)) {
-  const [countsResult, postsResult] = await Promise.allSettled([collectXWindowCounts(trendName, query), collectXTopPosts(trendName, query)]);
-  if (countsResult.status === "rejected" && postsResult.status === "rejected") throw countsResult.reason;
-  return {
-    counts: countsResult.status === "fulfilled" ? countsResult.value : undefined,
-    posts: postsResult.status === "fulfilled" ? postsResult.value : undefined,
+    newest: unique.map((post) => post.createdAt).filter((value): value is string => Boolean(value)).sort().at(-1),
+    engagement: unique.reduce((sum, post) => sum + twitterApiPostEngagement(post), 0),
+    authorCount: authors.size,
+    postCount: unique.length,
+    billablePosts: Math.max(1, unique.length),
+    observedAt: new Date(now).toISOString(),
   };
 }
 
@@ -668,14 +651,6 @@ async function collectPumpFun(): Promise<PumpCollectorResult> {
   }
 }
 
-function pumpXQuery(coin: PumpSeed) {
-  const name = coin.name.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
-  const symbol = coin.symbol.replace(/[^A-Za-z0-9_]/g, "").slice(0, 20);
-  const clauses = [`"${name}"`];
-  if (symbol.length >= 3 && normalize(symbol) !== normalize(name)) clauses.push(`$${symbol}`);
-  return `(${clauses.join(" OR ")}) lang:en -is:retweet`;
-}
-
 function pumpTrendMatch(coin: PumpSeed, trends: Trend[]) {
   const generic = new Set(["coin", "official", "token", "pump", "pumpfun", "cat", "dog", "bear", "bull", "meme", "the"]);
   const nameTokens = new Set(tokens(coin.name).filter((token) => !generic.has(token)));
@@ -700,13 +675,7 @@ function pumpAttentionWindows(base: number, counts?: WindowValues): WindowValues
 }
 
 async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ coins: PumpCoin[]; xCoverage: number }> {
-  const xLimit = runtime.X_BEARER_TOKEN ? clamp(Number(runtime.PUMPFUN_X_ENRICH_LIMIT ?? 6) || 6, 0, Math.min(10, seeds.length)) : 0;
-  const xSignals = await Promise.allSettled(seeds.slice(0, xLimit).map((coin) => collectXSignal(coin.name, pumpXQuery(coin))));
-  let xCoverage = 0;
-  const coins = seeds.map((coin, index): PumpCoin => {
-    const signalResult = index < xSignals.length ? xSignals[index] : undefined;
-    const signal = signalResult?.status === "fulfilled" ? signalResult.value : undefined;
-    if (signal?.counts || signal?.posts?.evidence.length) xCoverage += 1;
+  const coins = seeds.map((coin): PumpCoin => {
     const relatedTrend = pumpTrendMatch(coin, trends);
     const pumpUrl = `https://pump.fun/coin/${coin.mint}`;
     const twitter = safeExternalUrl(coin.twitter);
@@ -719,11 +688,10 @@ async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ co
     const evidence: TrendEvidence[] = [{ source: "Pump.fun", title: `${coin.name} is #${coin.rank} in ${coin.bucket}`, url: pumpUrl, detail: marketCapUsd ? `$${Math.round(marketCapUsd).toLocaleString()} market cap shown at ingestion` : "Official coin page" }];
     if (twitter) evidence.push({ source: "Coin metadata · X", title: "Source post attached to the coin listing", url: twitter, detail: "Creator-supplied link; not independently verified" });
     if (website && website !== twitter) evidence.push({ source: "Coin metadata · Website", title: "Website attached to the coin listing", url: website, detail: "Creator-supplied link; not independently verified" });
-    evidence.push(...(signal?.posts?.evidence ?? []));
     if (relatedTrend) evidence.push(...relatedTrend.evidence.slice(0, 2));
     const uniqueEvidence = [...new Map(evidence.map((item) => [item.url, item])).values()].slice(0, 7);
     const summary = relatedTrend
-      ? `This listing appears to reference “${relatedTrend.title},” which Front Run is also seeing in independent trend evidence. Pump rank and X discussion measure attention, not token quality.`
+      ? `This listing appears to reference “${relatedTrend.title},” which Front Run is also seeing in independent trend evidence. Pump rank measures platform attention, not token quality.`
       : metadataSource
         ? `Pump.fun is surfacing ${coin.name}, and its listing points to ${metadataLabel.toLowerCase()}. No independent news/trend match is confirmed yet.`
         : `Pump.fun is surfacing ${coin.name}, but the listing does not provide a confirmed external origin. Treat it as platform attention only.`;
@@ -738,8 +706,7 @@ async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ co
       rank: coin.rank,
       marketCapUsd,
       createdAt: coin.created_timestamp ? new Date(coin.created_timestamp).toISOString() : undefined,
-      score: pumpAttentionWindows(base, signal?.counts),
-      xPosts: signal?.counts,
+      score: pumpAttentionWindows(base),
       summary,
       sourceLabel: relatedTrend ? `Matched trend · ${relatedTrend.title}` : metadataLabel,
       sourceUrl: relatedTrend ? relatedTrend.url : metadataSource || pumpUrl,
@@ -748,7 +715,7 @@ async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ co
       evidence: uniqueEvidence,
     };
   });
-  return { coins: coins.sort((a, b) => b.score["30m"] - a.score["30m"]), xCoverage };
+  return { coins: coins.sort((a, b) => b.score["30m"] - a.score["30m"]), xCoverage: 0 };
 }
 
 function xCandidatePriority(item: Candidate) {
@@ -758,119 +725,151 @@ function xCandidatePriority(item: Candidate) {
   return categoryBoost + sourceBoost + item.strength;
 }
 
-async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult> {
-  if (!runtime.X_BEARER_TOKEN) {
-    return { items: [], status: { key: "x", label: "X", state: "needs-key", detail: "Add X_BEARER_TOKEN for trend names, post counts and top-post links", itemCount: 0 } };
-  }
-  const nativeItems: Candidate[] = [];
-  let trendsError: unknown;
-  try {
-    const woeids = (runtime.X_WOEIDS || "23424977").split(",").map((value) => value.trim()).filter(Boolean);
-    const responses = await Promise.all(woeids.map((woeid) => fetchJson<XTrendResponse>(`https://api.x.com/2/trends/by/woeid/${woeid}?max_trends=30&trend.fields=trend_name,tweet_count`, { headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` } })));
-    const seen = new Set<string>();
-    for (const response of responses) {
-      for (const trend of response.data ?? []) {
-        const key = normalize(trend.trend_name);
-        if (!isUsefulTitle(trend.trend_name) || seen.has(key)) continue;
-        seen.add(key);
-        const activity = Math.max(1, trend.tweet_count ?? 1);
-        nativeItems.push({
-          id: `x-${slug(trend.trend_name)}`,
-          title: trend.trend_name.replace(/^#/, ""),
-          url: `https://x.com/search?q=${encodeURIComponent(trend.trend_name)}`,
-          source: "x",
-          sourceLabel: "X",
-          publishedAt: new Date().toISOString(),
-          activity,
-          strength: clamp(46 + Math.log10(activity + 1) * 11, 45, 98),
-          detail: trend.tweet_count ? `${trend.tweet_count.toLocaleString()} posts` : "Trending on X",
-          geography: woeids.length > 1 ? "Multi-region" : "US",
-        });
-      }
-    }
-  } catch (error) {
-    trendsError = error;
+let ephemeralTwitterApiUsage: TwitterApiMonthlyUsage & { month: string } = { month: "", billablePosts: 0, queryCount: 0 };
+
+function cachedTwitterApiItems(previousPayload: TrendsPayload | null | undefined, now: number, cacheHours: number) {
+  if (!previousPayload) return [];
+  const maxAgeMs = cacheHours * 60 * 60_000;
+  return previousPayload.trends.flatMap((trend): Candidate[] => {
+    const metric = trend.platforms.x;
+    const observedAt = new Date(metric?.observedAt ?? "").getTime();
+    if (!metric || metric.scope !== "sample" || !Number.isFinite(observedAt) || now - observedAt > maxAgeMs) return [];
+    const evidence = trend.evidence.filter((item) => item.source === "X" || item.source.startsWith("X ·"));
+    const sourceAnchor = trend.evidence.find((item) => item.source !== "X search" && item.source !== "X" && !item.source.startsWith("X ·"));
+    return [{
+      id: `x-cache-${trend.id}`,
+      title: sourceAnchor?.title || trend.title,
+      url: evidence[0]?.url || trend.url,
+      source: "x",
+      sourceLabel: "X sample · cached",
+      publishedAt: metric.observedAt!,
+      activity: Math.max(1, metric.windows["24h"]),
+      strength: clamp(Math.round(trend.score["30m"] * 0.78), 38, 78),
+      detail: `Cached TwitterAPI.io sample · observed ${ageLabel(metric.observedAt!)}`,
+      geography: trend.geography,
+      categoryHint: { category: trend.category, subcategory: trend.subcategory },
+      platform: { key: "x", metric },
+      extraEvidence: evidence,
+    }];
+  });
+}
+
+async function collectX(sourceCandidates: Candidate[], options: BuildTrendsOptions = {}): Promise<CollectorResult> {
+  const now = Date.now();
+  const month = new Date(now).toISOString().slice(0, 7);
+  if (ephemeralTwitterApiUsage.month !== month) ephemeralTwitterApiUsage = { month, billablePosts: 0, queryCount: 0 };
+  const cacheHoursValue = Number(runtime.TWITTERAPI_CACHE_HOURS ?? 6);
+  const cacheHours = Number.isFinite(cacheHoursValue) ? clamp(cacheHoursValue, 1, 24) : 6;
+  const cachedItems = cachedTwitterApiItems(options.previousPayload, now, cacheHours);
+  if (!runtime.TWITTERAPI_IO_KEY) {
+    return { items: cachedItems, status: { key: "x", label: "X sample", state: "needs-key", detail: "Add TWITTERAPI_IO_KEY for cost-controlled X samples and leading-post links", itemCount: cachedItems.length } };
   }
 
-  const totalLimit = clamp(Number(runtime.X_COUNT_ENRICH_LIMIT ?? 12) || 12, 1, 20);
-  const storyLimit = Math.min(9, Math.max(1, totalLimit - 3));
-  const storySeen = new Set<string>();
-  const rankedStorySeeds = [...sourceCandidates]
+  const usage = options.twitterApiUsage ?? ephemeralTwitterApiUsage;
+  const budgetValue = Number(runtime.TWITTERAPI_MONTHLY_BUDGET_USD ?? 5);
+  const budgetUsd = Number.isFinite(budgetValue) ? clamp(budgetValue, 0, 1_000) : 5;
+  const maxBillablePosts = Math.floor(budgetUsd / 0.00015);
+  const remainingPosts = Math.max(0, maxBillablePosts - usage.billablePosts);
+  if (remainingPosts < 20) {
+    return { items: cachedItems, status: { key: "x", label: "X sample", state: "restricted", detail: `$${budgetUsd.toFixed(2)} monthly TwitterAPI.io cap reached · cached samples remain visible`, itemCount: cachedItems.length } };
+  }
+
+  const intervalValue = Number(runtime.TWITTERAPI_SAMPLE_INTERVAL_MINUTES ?? 30);
+  const intervalMinutes = Number.isFinite(intervalValue) ? clamp(intervalValue, 5, 360) : 30;
+  const lastUsedAt = new Date(usage.lastUsedAt ?? "").getTime();
+  const cadenceOpen = !Number.isFinite(lastUsedAt) || now - lastUsedAt >= intervalMinutes * 60_000;
+  const queryLimitValue = Number(runtime.TWITTERAPI_QUERY_LIMIT ?? 1);
+  const queryLimit = Number.isFinite(queryLimitValue) ? clamp(Math.floor(queryLimitValue), 0, 5) : 1;
+  const runLimit = cadenceOpen ? Math.min(queryLimit, Math.floor(remainingPosts / 20)) : 0;
+  if (!runLimit) {
+    const spend = usage.billablePosts * 0.00015;
+    return { items: cachedItems, status: { key: "x", label: "X sample", state: "live", detail: `${cachedItems.length} cached samples · next query slot every ${intervalMinutes}m · about $${spend.toFixed(2)} of $${budgetUsd.toFixed(2)} cap`, itemCount: cachedItems.length } };
+  }
+
+  const priorTrends = options.previousPayload?.trends ?? [];
+  const seen = new Set<string>();
+  const rankedSeeds = [...sourceCandidates]
     .filter((item) => item.source === "kym" || item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
     .filter((item) => {
       const category = item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0];
       return category !== "Memes" || !isLowSignalMemeCollection(item.title);
     })
-    .sort((a, b) => xCandidatePriority(b) - xCandidatePriority(a))
     .filter((item) => {
       const key = normalize(shortTrendTitle(item.title));
-      if (!key || storySeen.has(key)) return false;
-      storySeen.add(key);
-      return true;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      const prior = priorTrends.find((trend) => trend.id === slug(item.title) || similar(trend.title, item.title));
+      const observedAt = new Date(prior?.platforms.x?.observedAt ?? "").getTime();
+      if (prior?.phase === "Cooling" && Number.isFinite(observedAt)) return false;
+      return !Number.isFinite(observedAt) || now - observedAt >= cacheHours * 60 * 60_000;
+    })
+    .sort((a, b) => {
+      const aPrior = priorTrends.some((trend) => trend.id === slug(a.title) || similar(trend.title, a.title));
+      const bPrior = priorTrends.some((trend) => trend.id === slug(b.title) || similar(trend.title, b.title));
+      return Number(aPrior) - Number(bPrior) || xCandidatePriority(b) - xCandidatePriority(a);
     });
-  const selectedStorySeeds = new Map<string, Candidate>();
-  const addStorySeeds = (candidates: Candidate[], limit: number) => {
-    for (const candidate of candidates) {
-      if (selectedStorySeeds.size >= storyLimit || limit <= 0) break;
-      const key = normalize(shortTrendTitle(candidate.title));
-      if (selectedStorySeeds.has(key)) continue;
-      selectedStorySeeds.set(key, candidate);
-      limit -= 1;
-    }
-  };
-  const animalQuota = Math.min(3, Math.max(1, Math.floor(storyLimit * 0.4)));
-  const memeQuota = Math.min(5, Math.max(1, storyLimit - animalQuota));
-  addStorySeeds(rankedStorySeeds.filter((item) => item.categoryHint?.category === "Memes"), memeQuota);
-  addStorySeeds(rankedStorySeeds.filter((item) => (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === "Animals"), animalQuota);
-  addStorySeeds(rankedStorySeeds, storyLimit - selectedStorySeeds.size);
-  const storySeeds = [...selectedStorySeeds.values()];
-  const targets = [
-    ...nativeItems.slice(0, Math.max(0, totalLimit - storySeeds.length)).map((item) => ({ kind: "native" as const, item })),
-    ...storySeeds.map((item) => ({ kind: "story" as const, item })),
-  ];
-  const enriched = await Promise.allSettled(targets.map(async (target) => ({ target, signal: await collectXSignal(target.item.title) })));
-  const storyItems: Candidate[] = [];
-  let countCoverage = 0;
-  let postCoverage = 0;
-  for (const result of enriched) {
+
+  const categoryCycle = ["Memes", "Animals", "Technology", "Viral events", "News"];
+  const slot = Math.floor(now / (intervalMinutes * 60_000));
+  const targets: Candidate[] = [];
+  for (let index = 0; index < runLimit; index += 1) {
+    const preferred = categoryCycle[(slot + index) % categoryCycle.length];
+    const candidate = rankedSeeds.find((item) => !targets.includes(item) && (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === preferred)
+      ?? rankedSeeds.find((item) => !targets.includes(item));
+    if (!candidate) break;
+    targets.push(candidate);
+  }
+
+  const results = await Promise.allSettled(targets.map(async (target) => ({ target, sample: await collectTwitterApiSample(target.title) })));
+  const liveItems: Candidate[] = [];
+  let billablePosts = 0;
+  let queryCount = 0;
+  for (const result of results) {
     if (result.status !== "fulfilled") continue;
-    const { target, signal } = result.value;
-    if (signal.counts) countCoverage += 1;
-    if (signal.posts?.evidence.length) postCoverage += 1;
-    const platform = signal.counts ? {
-      key: "x" as const,
-      metric: { label: "X posts", metric: "posts" as const, scope: "exact" as const, windows: signal.counts, detail: "Official recent-count API; reposts excluded" },
-    } : undefined;
-    const evidence = signal.posts?.evidence ?? [];
-    if (target.kind === "native") {
-      target.item.platform = platform;
-      target.item.extraEvidence = evidence;
-      if (evidence[0]) target.item.url = evidence[0].url;
-      continue;
-    }
-    const activity = Math.max(1, signal.counts?.["24h"] ?? signal.posts?.engagement ?? 1);
-    if (!signal.counts && evidence.length === 0) continue;
-    storyItems.push({
-      id: `x-story-${slug(target.item.title)}`,
-      title: target.item.title,
-      url: evidence[0]?.url || `https://x.com/search?q=${encodeURIComponent(xCountQuery(target.item.title))}`,
+    const { target, sample } = result.value;
+    billablePosts += sample.billablePosts;
+    queryCount += 1;
+    if (!sample.postCount) continue;
+    liveItems.push({
+      id: `x-sample-${slug(target.title)}`,
+      title: target.title,
+      url: sample.evidence[0]?.url || `https://x.com/search?q=${encodeURIComponent(xCountQuery(target.title))}`,
       source: "x",
-      sourceLabel: "X",
-      publishedAt: signal.posts?.newest || new Date().toISOString(),
-      activity,
-      strength: clamp(40 + Math.log10(activity + 1) * 12 + (evidence.length ? 5 : 0), 38, 96),
-      detail: signal.counts ? `${signal.counts["24h"].toLocaleString()} original posts in 24h · ${evidence.length} leading posts linked` : `${evidence.length} leading posts linked`,
+      sourceLabel: "X sample · TwitterAPI.io",
+      publishedAt: sample.newest || sample.observedAt,
+      activity: Math.max(1, sample.engagement),
+      strength: clamp(Math.round(42 + Math.log10(sample.engagement + 1) * 10 + Math.min(10, sample.authorCount)), 40, 94),
+      detail: `${sample.postCount} matched posts · ${sample.authorCount} authors · sample, not platform-wide count`,
       geography: "US-seeded · English X",
-      platform,
-      extraEvidence: evidence,
+      categoryHint: target.categoryHint,
+      platform: {
+        key: "x",
+        metric: { label: "X sampled posts", metric: "posts", scope: "sample", windows: sample.windows, detail: "Up to 20 public posts from a 24-hour TwitterAPI.io search; not a platform-wide count", observedAt: sample.observedAt },
+      },
+      extraEvidence: sample.evidence,
     });
   }
 
-  const items = [...nativeItems, ...storyItems];
-  const detail = countCoverage || postCoverage
-    ? `${storyItems.length} news-led stories checked · exact counts for ${countCoverage} signals · top-post links for ${postCoverage}`
-    : trendsError ? errorMessage(trendsError) : "X returned no matching activity this run";
-  return { items, status: { key: "x", label: "X", state: items.length ? "live" : "error", detail, itemCount: items.length } };
+  let usageRecordFailed = false;
+  if (billablePosts && queryCount) {
+    ephemeralTwitterApiUsage.billablePosts += billablePosts;
+    ephemeralTwitterApiUsage.queryCount += queryCount;
+    ephemeralTwitterApiUsage.lastUsedAt = new Date(now).toISOString();
+    try {
+      await options.recordTwitterApiUsage?.(billablePosts, queryCount);
+    } catch {
+      usageRecordFailed = true;
+    }
+  }
+  const carriedItems = cachedItems.filter((cached) => !liveItems.some((live) => similar(live.title, cached.title)));
+  const items = [...liveItems, ...carriedItems];
+  const failures = results.filter((result) => result.status === "rejected");
+  const usedAfter = usage.billablePosts + billablePosts;
+  const spend = usedAfter * 0.00015;
+  const detail = liveItems.length || carriedItems.length
+    ? `${liveItems.length} live sample${liveItems.length === 1 ? "" : "s"} · ${carriedItems.length} cached · about $${spend.toFixed(2)} of $${budgetUsd.toFixed(2)} cap${usageRecordFailed ? " · usage ledger write failed" : ""}`
+    : failures.length ? errorMessage(failures[0].reason) : "No matching X posts returned in this sample slot";
+  return { items, status: { key: "x", label: "X sample", state: items.length ? "live" : failures.length ? "error" : "live", detail, itemCount: items.length } };
 }
 
 type YouTubeResponse = { items?: Array<{ id: string; snippet: { title: string; publishedAt: string }; statistics?: { viewCount?: string; likeCount?: string; commentCount?: string } }> };
@@ -1401,12 +1400,12 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
   }
 }
 
-export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map()): Promise<TrendsPayload> {
+export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map(), options: BuildTrendsOptions = {}): Promise<TrendsPayload> {
   const [publicCollectors, pumpCollector] = await Promise.all([
     Promise.all([collectGoogleTrends(), collectGoogleNews(), collectKnowYourMeme(), collectPublisherNews(), collectHackerNews(), collectYouTube()]),
     collectPumpFun(),
   ]);
-  const x = await collectX(publicCollectors.flatMap((collector) => collector.items));
+  const x = await collectX(publicCollectors.flatMap((collector) => collector.items), options);
   const coreCollectors = [...publicCollectors, x];
   const tiktok = await collectTikTok(coreCollectors.flatMap((collector) => collector.items));
   const collectors = [...coreCollectors, tiktok];

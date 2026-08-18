@@ -4,12 +4,13 @@ import test from "node:test";
 const now = new Date();
 const published = new Date(now.getTime() - 20 * 60_000).toUTCString();
 const end = new Date(now.getTime() - 30_000).toISOString();
-const start = new Date(now.getTime() - 90_000).toISOString();
 const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail";
 const techTitle = "Apple reveals pocket AI robot for the home";
 const sportTitle = "Chicago Cubs star Pete Crow-Armstrong hits two home runs";
 const officialTitle = "Bird defends state decision to submit voter data to feds";
 const observedXQueries: string[] = [];
+let recordedBillablePosts = 0;
+let recordedQueryCount = 0;
 
 function flightFrame(id: string, props: Record<string, unknown>) {
   const chunk = `${id}:${JSON.stringify(["$", "$Ltest", null, props])}`;
@@ -44,12 +45,13 @@ const kymTrendingHtml = `<article data-title="Cursed Pam Beesly Meme" data-type=
 const kymUpdatedHtml = `<article data-title="Corn Dog Cat Meme Returns" data-type="Editorial"><a href="/memes/corn-dog-cat" class="newsfeed-title">Corn Dog Cat Meme Returns</a><a class="newsfeed-stamp">Updated</a><small class="text-muted"><em></em></small><div><p>An older meme is resurging.</p></div></article>`;
 const kymResearchingHtml = `<article data-title="Three Layer Dip Stack" data-type="Editorial"><a href="/memes/three-layer-dip-stack" class="newsfeed-title">Three Layer Dip Stack</a><a class="newsfeed-stamp">Researching</a><small class="text-muted"><em></em></small><div><p>A new format is being documented.</p></div></article>`;
 
-process.env.X_BEARER_TOKEN = "test-token";
-process.env.X_COUNT_ENRICH_LIMIT = "8";
-process.env.X_POSTS_PER_TREND = "10";
+process.env.TWITTERAPI_IO_KEY = "test-key";
+process.env.TWITTERAPI_MONTHLY_BUDGET_USD = "5";
+process.env.TWITTERAPI_SAMPLE_INTERVAL_MINUTES = "30";
+process.env.TWITTERAPI_QUERY_LIMIT = "5";
+process.env.TWITTERAPI_CACHE_HOURS = "6";
 process.env.PUMPFUN_LIMIT = "4";
 process.env.PUMPFUN_ENRICH_LIMIT = "1";
-process.env.PUMPFUN_X_ENRICH_LIMIT = "1";
 delete process.env.OPENAI_API_KEY;
 delete process.env.YOUTUBE_API_KEY;
 delete process.env.BRIGHTDATA_API_TOKEN;
@@ -66,21 +68,12 @@ globalThis.fetch = (async (input: string | URL | Request) => {
   if (url === "https://pump.fun/explore") return new Response(pumpHtml, { status: 200, headers: { "content-type": "text/html" } });
   if (url.includes("frontend-api-v3.pump.fun/coins/")) return Response.json(pumpCoin);
   if (url.endsWith("topstories.json")) return Response.json([]);
-  if (url.includes("/trends/by/woeid/")) return Response.json({ data: [] });
-  if (url.includes("/tweets/counts/recent")) {
+  if (url.includes("api.twitterapi.io/twitter/tweet/advanced_search")) {
     observedXQueries.push(new URL(url).searchParams.get("query") ?? "");
-    return Response.json({ data: [{ start, end, tweet_count: 240 }] });
-  }
-  if (url.includes("/tweets/search/recent")) {
     const query = new URL(url).searchParams.get("query") ?? "";
-    observedXQueries.push(query);
-    if (query.includes("Jimothy")) return Response.json({
-      data: [{ id: "987654321", text: "Jimothy the raccoon is taking over timelines.", author_id: "77", created_at: end, public_metrics: { like_count: 900, retweet_count: 120, reply_count: 30, quote_count: 25 } }],
-      includes: { users: [{ id: "77", username: "meme_reporter", name: "Meme Reporter" }] },
-    });
+    if (/bear/i.test(query)) return Response.json({ tweets: [{ id: "1234567890", url: "https://x.com/wildlife_reporter/status/1234567890", text: "This brown bear trail encounter is everywhere today.", createdAt: end, likeCount: 4200, retweetCount: 680, replyCount: 95, quoteCount: 120, author: { userName: "wildlife_reporter", name: "Wildlife Reporter", isBlueVerified: true } }] });
     return Response.json({
-      data: [{ id: "1234567890", text: "This brown bear trail encounter is everywhere today.", author_id: "42", created_at: end, public_metrics: { like_count: 4200, retweet_count: 680, reply_count: 95, quote_count: 120 } }],
-      includes: { users: [{ id: "42", username: "wildlife_reporter", name: "Wildlife Reporter", verified: true }] },
+      tweets: [{ id: `meme-${observedXQueries.length}`, url: `https://x.com/meme_reporter/status/${observedXQueries.length}`, text: "This new meme format is spreading across timelines.", createdAt: end, likeCount: 900, retweetCount: 120, replyCount: 30, quoteCount: 25, author: { userName: "meme_reporter", name: "Meme Reporter" } }],
     });
   }
   throw new Error(`Unexpected URL in test: ${url}`);
@@ -88,8 +81,14 @@ globalThis.fetch = (async (input: string | URL | Request) => {
 
 const { buildTrendsPayload } = await import("../lib/trend-engine");
 
-test("discovers category-specific news and enriches a story with X counts and leading posts", async () => {
-  const payload = await buildTrendsPayload();
+test("discovers category-specific news and enriches selected stories with budgeted X samples", async () => {
+  const payload = await buildTrendsPayload(new Map(), {
+    twitterApiUsage: { billablePosts: 0, queryCount: 0 },
+    recordTwitterApiUsage: async (billablePosts, queryCount) => {
+      recordedBillablePosts += billablePosts;
+      recordedQueryCount += queryCount;
+    },
+  });
   const animal = payload.trends.find((trend) => trend.category === "Animals");
   const technology = payload.trends.find((trend) => trend.category === "Technology");
   const baseball = payload.trends.find((trend) => trend.title.includes("Crow-Armstrong"));
@@ -108,20 +107,40 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.ok(payload.trends.every((trend) => !/top 25 memes|memes of the decade/i.test(trend.title)));
   assert.ok(payload.trends.every((trend) => trend.firstSeenAt && Number.isFinite(new Date(trend.firstSeenAt).getTime())));
   assert.ok(animal.summary.length > 20);
-  assert.equal(animal.platforms.x.windows["24h"], 240);
+  assert.equal(animal.platforms.x.scope, "sample");
+  assert.equal(animal.platforms.x.windows["24h"], 1);
+  assert.match(animal.platforms.x.detail, /TwitterAPI\.io/);
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
   assert.ok(animal.evidence.some((item) => item.url === "https://news.example/bear"));
-  assert.ok(observedXQueries.length >= 2);
+  assert.ok(observedXQueries.length >= 2 && observedXQueries.length <= 5);
   assert.ok(observedXQueries.some((query) => query.includes("bear") && !query.includes("runner was the person")));
   assert.ok(observedXQueries.some((query) => /bicep|pam|corn dog|dip stack/i.test(query)));
   assert.ok(meme.evidence.some((item) => item.url.includes("knowyourmeme.com")));
   assert.ok(meme.evidence.some((item) => item.source === "X search" && item.url.startsWith("https://x.com/search?")));
   assert.equal(payload.sources.find((source) => source.key === "kym")?.state, "live");
-  assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /top-post links/);
+  assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /live sample/);
+  assert.equal(recordedBillablePosts, observedXQueries.length);
+  assert.equal(recordedQueryCount, observedXQueries.length);
   assert.equal(payload.pumpCoins[0]?.name, "Jimothy The Raccoon");
   assert.equal(payload.pumpCoins[0]?.bucket, "Trending now");
-  assert.equal(payload.pumpCoins[0]?.xPosts?.["24h"], 240);
-  assert.ok(payload.pumpCoins[0]?.evidence.some((item) => item.url === "https://x.com/meme_reporter/status/987654321"));
+  assert.equal(payload.pumpCoins[0]?.xPosts, undefined);
   assert.equal(payload.sources.find((source) => source.key === "pumpfun")?.state, "live");
   assert.match(payload.sources.find((source) => source.key === "publisher")?.detail ?? "", /11 dedicated animal/);
+
+  const queriesBeforeCacheCheck = observedXQueries.length;
+  const cachedPayload = await buildTrendsPayload(new Map(), {
+    previousPayload: payload,
+    twitterApiUsage: { billablePosts: recordedBillablePosts, queryCount: recordedQueryCount, lastUsedAt: new Date().toISOString() },
+  });
+  assert.equal(observedXQueries.length, queriesBeforeCacheCheck, "the 30-minute cadence should prevent another paid query");
+  assert.ok(cachedPayload.trends.some((trend) => trend.platforms.x?.scope === "sample"), "cached X samples should remain visible between query slots");
+  assert.match(cachedPayload.sources.find((source) => source.key === "x")?.detail ?? "", /cached samples/);
+
+  const cappedPayload = await buildTrendsPayload(new Map(), {
+    previousPayload: payload,
+    twitterApiUsage: { billablePosts: 33_320, queryCount: 2_000 },
+  });
+  assert.equal(observedXQueries.length, queriesBeforeCacheCheck, "the monthly budget guard should block paid queries");
+  assert.equal(cappedPayload.sources.find((source) => source.key === "x")?.state, "restricted");
+  assert.match(cappedPayload.sources.find((source) => source.key === "x")?.detail ?? "", /monthly TwitterAPI\.io cap reached/);
 });

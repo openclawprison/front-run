@@ -27,6 +27,7 @@ export type PlatformMetric = {
   scope: "exact" | "sample";
   windows: WindowValues;
   detail: string;
+  observedAt?: string;
 };
 
 export type Trend = {

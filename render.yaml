@@ -16,20 +16,20 @@ services:
           property: connectionString
       - key: INGEST_SECRET
         generateValue: true
-      - key: X_BEARER_TOKEN
+      - key: TWITTERAPI_IO_KEY
         sync: false
-      - key: X_WOEIDS
-        value: "23424977"
-      - key: X_COUNT_ENRICH_LIMIT
-        value: "12"
-      - key: X_POSTS_PER_TREND
-        value: "10"
+      - key: TWITTERAPI_MONTHLY_BUDGET_USD
+        value: "5"
+      - key: TWITTERAPI_SAMPLE_INTERVAL_MINUTES
+        value: "30"
+      - key: TWITTERAPI_QUERY_LIMIT
+        value: "1"
+      - key: TWITTERAPI_CACHE_HOURS
+        value: "6"
       - key: PUMPFUN_LIMIT
         value: "12"
       - key: PUMPFUN_ENRICH_LIMIT
         value: "10"
-      - key: PUMPFUN_X_ENRICH_LIMIT
-        value: "6"
       - key: YOUTUBE_API_KEY
         sync: false
       - key: YOUTUBE_REGIONS
