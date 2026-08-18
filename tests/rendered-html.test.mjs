@@ -15,17 +15,24 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
 
   assert.match(page, /FRONT RUN/);
   assert.match(page, /Platform counts/);
+  assert.match(page, /News coverage and leading posts/);
   assert.match(page, /TREND_TAXONOMY/);
   assert.doesNotMatch(page, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
   assert.match(route, /readOrRefreshTrends/);
   assert.match(engine, /trends\.google\.com\/trending\/rss/);
   assert.match(engine, /api\.x\.com\/2\/tweets\/counts\/recent/);
+  assert.match(engine, /api\.x\.com\/2\/tweets\/search\/recent/);
+  assert.match(engine, /Animal watch/);
+  assert.match(engine, /Technology watch/);
+  assert.match(engine, /shortTrendTitle/);
+  assert.match(engine, /top-post links/);
   assert.match(engine, /23424977/);
   assert.match(engine, /const regions = \["US"\]/);
   assert.match(engine, /gd_lu702nij2f790tmv9h/);
   assert.match(blueprint, /healthCheckPath: \/api\/health/);
   assert.match(blueprint, /schedule: "\*\/5 \* \* \* \*"/);
+  assert.match(blueprint, /X_POSTS_PER_TREND/);
 });
 
 test("includes Render, storage, environment, and preview assets", async () => {

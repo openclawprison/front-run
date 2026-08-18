@@ -1,7 +1,7 @@
 import type { HistoricalSnapshot } from "./trend-store";
 import { applyHistory } from "./trend-store";
 import { TREND_TAXONOMY } from "./trend-types";
-import type { NewsItem, Phase, PlatformMetric, SourceStatus, Trend, TrendsPayload, WindowValues } from "./trend-types";
+import type { NewsItem, Phase, PlatformMetric, SourceStatus, Trend, TrendEvidence, TrendsPayload, WindowValues } from "./trend-types";
 
 type RuntimeEnv = {
   OPENAI_API_KEY?: string;
@@ -9,6 +9,7 @@ type RuntimeEnv = {
   X_BEARER_TOKEN?: string;
   X_WOEIDS?: string;
   X_COUNT_ENRICH_LIMIT?: string;
+  X_POSTS_PER_TREND?: string;
   YOUTUBE_API_KEY?: string;
   YOUTUBE_REGIONS?: string;
   BRIGHTDATA_API_TOKEN?: string;
@@ -32,6 +33,7 @@ type Candidate = {
   geography: string;
   platform?: { key: "x" | "tiktok"; metric: PlatformMetric };
   relatedNews?: { title: string; url: string; source: string };
+  extraEvidence?: TrendEvidence[];
 };
 
 type CollectorResult = { items: Candidate[]; status: SourceStatus };
@@ -102,7 +104,7 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
       rssItems(xml).slice(0, 25).forEach((entry, index) => {
         const title = tag(entry, "title");
         const key = normalize(title);
-        if (!title || seen.has(key)) return;
+        if (!isUsefulTitle(title) || seen.has(key)) return;
         seen.add(key);
         const activity = numberFromTraffic(tag(entry, "ht:approx_traffic") || "1");
         const publishedAt = new Date(tag(entry, "pubDate") || Date.now()).toISOString();
@@ -132,27 +134,45 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
 
 async function collectGoogleNews(): Promise<CollectorResult> {
   try {
-    const xml = await fetchText("https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en");
-    const items = rssItems(xml).slice(0, 45).map((entry, index) => {
-      const rawTitle = tag(entry, "title");
-      const split = rawTitle.lastIndexOf(" - ");
-      const title = split > 0 ? rawTitle.slice(0, split) : rawTitle;
-      const outlet = split > 0 ? rawTitle.slice(split + 3) : "Publisher";
-      const publishedAt = new Date(tag(entry, "pubDate") || Date.now()).toISOString();
-      return {
-        id: `news-${slug(title)}`,
-        title,
-        url: tag(entry, "link") || "https://news.google.com/",
-        source: "news" as const,
-        sourceLabel: outlet,
-        publishedAt,
-        activity: 1,
-        strength: clamp(68 - index * 0.7, 32, 68),
-        detail: `${outlet} · headline pickup`,
-        geography: "US",
-      };
-    }).filter((item) => item.title);
-    return { items, status: { key: "news", label: "Google News", state: "live", detail: "Live publisher headline feed", itemCount: items.length } };
+    const feeds = [
+      { label: "US top stories", query: "", limit: 32, strength: 68 },
+      { label: "Animal watch", query: "(animal OR wildlife OR zoo OR pet OR cat OR dog OR bear OR whale OR dolphin OR rescue) when:1d", limit: 24, strength: 74 },
+      { label: "Technology watch", query: "(technology OR AI OR robot OR Apple OR Google OR OpenAI OR startup OR cybersecurity OR space) when:1d", limit: 24, strength: 73 },
+      { label: "Viral watch", query: "(viral OR meme OR \"caught on camera\" OR \"social media\") when:1d", limit: 18, strength: 70 },
+    ];
+    const responses = await Promise.all(feeds.map((feed) => {
+      const base = feed.query ? "https://news.google.com/rss/search" : "https://news.google.com/rss";
+      const params = new URLSearchParams({ hl: "en-US", gl: "US", ceid: "US:en" });
+      if (feed.query) params.set("q", feed.query);
+      return fetchText(`${base}?${params}`);
+    }));
+    const seen = new Set<string>();
+    const items: Candidate[] = [];
+    responses.forEach((xml, feedIndex) => {
+      const feed = feeds[feedIndex];
+      rssItems(xml).slice(0, feed.limit).forEach((entry, index) => {
+        const rawTitle = tag(entry, "title");
+        const split = rawTitle.lastIndexOf(" - ");
+        const title = (split > 0 ? rawTitle.slice(0, split) : rawTitle).trim();
+        const key = normalize(title);
+        if (!isUsefulTitle(title) || seen.has(key)) return;
+        seen.add(key);
+        const outlet = split > 0 ? rawTitle.slice(split + 3) : "Publisher";
+        items.push({
+          id: `news-${slug(title)}`,
+          title,
+          url: tag(entry, "link") || "https://news.google.com/",
+          source: "news",
+          sourceLabel: outlet,
+          publishedAt: new Date(tag(entry, "pubDate") || Date.now()).toISOString(),
+          activity: 1,
+          strength: clamp(feed.strength - index * 0.55, 36, feed.strength),
+          detail: `${outlet} · ${feed.label}`,
+          geography: "US",
+        });
+      });
+    });
+    return { items, status: { key: "news", label: "Google News", state: "live", detail: "US top stories plus dedicated Animals, Technology and Viral feeds", itemCount: items.length } };
   } catch (error) {
     return { items: [], status: { key: "news", label: "Google News", state: "error", detail: errorMessage(error), itemCount: 0 } };
   }
@@ -187,6 +207,17 @@ async function collectHackerNews(): Promise<CollectorResult> {
 
 type XTrendResponse = { data?: Array<{ trend_name: string; tweet_count?: number }> };
 type XCountResponse = { data?: Array<{ start: string; end: string; tweet_count: number }> };
+type XPost = {
+  id: string;
+  text: string;
+  author_id?: string;
+  created_at?: string;
+  public_metrics?: { retweet_count?: number; reply_count?: number; like_count?: number; quote_count?: number };
+};
+type XSearchResponse = {
+  data?: XPost[];
+  includes?: { users?: Array<{ id: string; username: string; name?: string; verified?: boolean }> };
+};
 
 function platformWindowsFromBuckets(buckets: Array<{ end: string; tweet_count: number }>, now = Date.now()): WindowValues {
   const durations: Record<keyof WindowValues, number> = { "5m": 5, "30m": 30, "60m": 60, "6h": 360, "24h": 1440 };
@@ -200,7 +231,14 @@ function platformWindowsFromBuckets(buckets: Array<{ end: string; tweet_count: n
 
 function xCountQuery(trendName: string) {
   const cleaned = trendName.replace(/["\\]/g, " ").trim();
-  return `${cleaned.startsWith("#") ? cleaned : `"${cleaned}"`} -is:retweet`;
+  if (cleaned.startsWith("#") && !cleaned.includes(" ")) return `${cleaned} lang:en -is:retweet`;
+  const topicTerms = new Set(["ai", "airpods", "animal", "bear", "bird", "cat", "cybersecurity", "dog", "dolphin", "iphone", "kitten", "moon", "openai", "pet", "puppy", "robot", "rocket", "shark", "spacex", "starship", "tiktok", "viral", "whale", "wildlife"]);
+  const capitalized = cleaned.match(/\b[A-Z][A-Za-z0-9’'-]+\b/g) ?? [];
+  const capitalizedTerms = capitalized.filter((word, index) => index > 0 || word.length > 3).map((word) => normalize(word)).filter(Boolean);
+  const domainTerms = tokens(cleaned).filter((word) => topicTerms.has(word));
+  const allTerms = tokens(cleaned);
+  const words = [...new Set([...capitalizedTerms, ...domainTerms, ...allTerms])].slice(0, 5);
+  return `${words.join(" ") || normalize(cleaned)} lang:en -is:retweet`;
 }
 
 async function collectXWindowCounts(trendName: string): Promise<WindowValues> {
@@ -217,22 +255,77 @@ async function collectXWindowCounts(trendName: string): Promise<WindowValues> {
   return platformWindowsFromBuckets(response.data ?? [], now);
 }
 
-async function collectX(): Promise<CollectorResult> {
+function xPostEngagement(post: XPost) {
+  const metrics = post.public_metrics;
+  return Number(metrics?.like_count ?? 0) + Number(metrics?.retweet_count ?? 0) * 2 + Number(metrics?.quote_count ?? 0) * 2 + Number(metrics?.reply_count ?? 0);
+}
+
+async function collectXTopPosts(trendName: string): Promise<{ evidence: TrendEvidence[]; newest?: string; engagement: number }> {
+  const maxResults = clamp(Number(runtime.X_POSTS_PER_TREND ?? 10) || 10, 10, 25);
+  const params = new URLSearchParams({
+    query: xCountQuery(trendName),
+    max_results: String(maxResults),
+    sort_order: "relevancy",
+    "tweet.fields": "created_at,public_metrics,author_id",
+    expansions: "author_id",
+    "user.fields": "username,name,verified",
+  });
+  const response = await fetchJson<XSearchResponse>(`https://api.x.com/2/tweets/search/recent?${params}`, {
+    headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` },
+  });
+  const users = new Map((response.includes?.users ?? []).map((user) => [user.id, user]));
+  const ranked = [...(response.data ?? [])].sort((a, b) => xPostEngagement(b) - xPostEngagement(a)).slice(0, 3);
+  const evidence = ranked.map((post) => {
+    const user = post.author_id ? users.get(post.author_id) : undefined;
+    const username = user?.username || "i";
+    const metrics = post.public_metrics;
+    return {
+      source: user?.username ? `X · @${user.username}` : "X",
+      title: post.text.replace(/\s+/g, " ").trim().slice(0, 160),
+      url: `https://x.com/${username}/status/${post.id}`,
+      detail: `${Number(metrics?.like_count ?? 0).toLocaleString()} likes · ${Number(metrics?.retweet_count ?? 0).toLocaleString()} reposts · ${Number(metrics?.reply_count ?? 0).toLocaleString()} replies`,
+    };
+  });
+  return {
+    evidence,
+    newest: ranked.map((post) => post.created_at).filter((value): value is string => Boolean(value)).sort().at(-1),
+    engagement: ranked.reduce((sum, post) => sum + xPostEngagement(post), 0),
+  };
+}
+
+async function collectXSignal(trendName: string) {
+  const [countsResult, postsResult] = await Promise.allSettled([collectXWindowCounts(trendName), collectXTopPosts(trendName)]);
+  if (countsResult.status === "rejected" && postsResult.status === "rejected") throw countsResult.reason;
+  return {
+    counts: countsResult.status === "fulfilled" ? countsResult.value : undefined,
+    posts: postsResult.status === "fulfilled" ? postsResult.value : undefined,
+  };
+}
+
+function xCandidatePriority(item: Candidate) {
+  const [category] = categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "news" || Boolean(item.relatedNews));
+  const categoryBoost = category === "Animals" ? 90 : category === "Technology" ? 75 : category === "Viral events" ? 55 : 25;
+  const sourceBoost = item.source === "google" ? 12 : item.source === "news" ? 8 : 0;
+  return categoryBoost + sourceBoost + item.strength;
+}
+
+async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult> {
   if (!runtime.X_BEARER_TOKEN) {
-    return { items: [], status: { key: "x", label: "X", state: "needs-key", detail: "Add X_BEARER_TOKEN for trend names and tweet counts", itemCount: 0 } };
+    return { items: [], status: { key: "x", label: "X", state: "needs-key", detail: "Add X_BEARER_TOKEN for trend names, post counts and top-post links", itemCount: 0 } };
   }
+  const nativeItems: Candidate[] = [];
+  let trendsError: unknown;
   try {
     const woeids = (runtime.X_WOEIDS || "23424977").split(",").map((value) => value.trim()).filter(Boolean);
     const responses = await Promise.all(woeids.map((woeid) => fetchJson<XTrendResponse>(`https://api.x.com/2/trends/by/woeid/${woeid}?max_trends=30&trend.fields=trend_name,tweet_count`, { headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` } })));
     const seen = new Set<string>();
-    const items: Candidate[] = [];
     for (const response of responses) {
       for (const trend of response.data ?? []) {
         const key = normalize(trend.trend_name);
-        if (!key || seen.has(key)) continue;
+        if (!isUsefulTitle(trend.trend_name) || seen.has(key)) continue;
         seen.add(key);
         const activity = Math.max(1, trend.tweet_count ?? 1);
-        items.push({
+        nativeItems.push({
           id: `x-${slug(trend.trend_name)}`,
           title: trend.trend_name.replace(/^#/, ""),
           url: `https://x.com/search?q=${encodeURIComponent(trend.trend_name)}`,
@@ -246,21 +339,70 @@ async function collectX(): Promise<CollectorResult> {
         });
       }
     }
-    const enrichLimit = clamp(Number(runtime.X_COUNT_ENRICH_LIMIT ?? 12) || 12, 0, 20);
-    const enriched = await Promise.allSettled(items.slice(0, enrichLimit).map(async (item) => ({ item, counts: await collectXWindowCounts(item.title) })));
-    let countCoverage = 0;
-    for (const result of enriched) {
-      if (result.status !== "fulfilled") continue;
-      result.value.item.platform = {
-        key: "x",
-        metric: { label: "X posts", metric: "posts", scope: "exact", windows: result.value.counts, detail: "Official recent-count API; reposts excluded" },
-      };
-      countCoverage += 1;
-    }
-    return { items, status: { key: "x", label: "X", state: "live", detail: countCoverage ? `Official trends plus exact minute counts for ${countCoverage} signals` : "Official Trends by WOEID API; exact counts unavailable this run", itemCount: items.length } };
   } catch (error) {
-    return { items: [], status: { key: "x", label: "X", state: "error", detail: errorMessage(error), itemCount: 0 } };
+    trendsError = error;
   }
+
+  const totalLimit = clamp(Number(runtime.X_COUNT_ENRICH_LIMIT ?? 12) || 12, 1, 20);
+  const storyLimit = Math.min(9, Math.max(1, totalLimit - 3));
+  const storySeen = new Set<string>();
+  const storySeeds = [...sourceCandidates]
+    .filter((item) => item.source === "news" || item.source === "google" || item.source === "hackernews")
+    .sort((a, b) => xCandidatePriority(b) - xCandidatePriority(a))
+    .filter((item) => {
+      const key = normalize(shortTrendTitle(item.title));
+      if (!key || storySeen.has(key)) return false;
+      storySeen.add(key);
+      return true;
+    })
+    .slice(0, storyLimit);
+  const targets = [
+    ...nativeItems.slice(0, Math.max(0, totalLimit - storySeeds.length)).map((item) => ({ kind: "native" as const, item })),
+    ...storySeeds.map((item) => ({ kind: "story" as const, item })),
+  ];
+  const enriched = await Promise.allSettled(targets.map(async (target) => ({ target, signal: await collectXSignal(target.item.title) })));
+  const storyItems: Candidate[] = [];
+  let countCoverage = 0;
+  let postCoverage = 0;
+  for (const result of enriched) {
+    if (result.status !== "fulfilled") continue;
+    const { target, signal } = result.value;
+    if (signal.counts) countCoverage += 1;
+    if (signal.posts?.evidence.length) postCoverage += 1;
+    const platform = signal.counts ? {
+      key: "x" as const,
+      metric: { label: "X posts", metric: "posts" as const, scope: "exact" as const, windows: signal.counts, detail: "Official recent-count API; reposts excluded" },
+    } : undefined;
+    const evidence = signal.posts?.evidence ?? [];
+    if (target.kind === "native") {
+      target.item.platform = platform;
+      target.item.extraEvidence = evidence;
+      if (evidence[0]) target.item.url = evidence[0].url;
+      continue;
+    }
+    const activity = Math.max(1, signal.counts?.["24h"] ?? signal.posts?.engagement ?? 1);
+    if (!signal.counts && evidence.length === 0) continue;
+    storyItems.push({
+      id: `x-story-${slug(target.item.title)}`,
+      title: target.item.title,
+      url: evidence[0]?.url || `https://x.com/search?q=${encodeURIComponent(xCountQuery(target.item.title))}`,
+      source: "x",
+      sourceLabel: "X",
+      publishedAt: signal.posts?.newest || new Date().toISOString(),
+      activity,
+      strength: clamp(40 + Math.log10(activity + 1) * 12 + (evidence.length ? 5 : 0), 38, 96),
+      detail: signal.counts ? `${signal.counts["24h"].toLocaleString()} original posts in 24h · ${evidence.length} leading posts linked` : `${evidence.length} leading posts linked`,
+      geography: "US-seeded · English X",
+      platform,
+      extraEvidence: evidence,
+    });
+  }
+
+  const items = [...nativeItems, ...storyItems];
+  const detail = countCoverage || postCoverage
+    ? `${storyItems.length} news-led stories checked · exact counts for ${countCoverage} signals · top-post links for ${postCoverage}`
+    : trendsError ? errorMessage(trendsError) : "X returned no matching activity this run";
+  return { items, status: { key: "x", label: "X", state: items.length ? "live" : "error", detail, itemCount: items.length } };
 }
 
 type YouTubeResponse = { items?: Array<{ id: string; snippet: { title: string; publishedAt: string }; statistics?: { viewCount?: string; likeCount?: string; commentCount?: string } }> };
@@ -403,7 +545,7 @@ async function collectTikTok(sourceCandidates: Candidate[]): Promise<CollectorRe
   }
 }
 
-const stopWords = new Set(["a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "with", "after", "new", "says"]);
+const stopWords = new Set(["a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to", "with", "after", "new", "says", "say", "latest", "watch", "video", "live", "update"]);
 
 function normalize(title: string) {
   return title.toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/[^a-z0-9#]+/g, " ").trim();
@@ -411,6 +553,43 @@ function normalize(title: string) {
 
 function tokens(title: string) {
   return normalize(title).split(/\s+/).filter((token) => token.length > 1 && !stopWords.has(token));
+}
+
+function isUsefulTitle(title: string) {
+  const normalized = normalize(title).replace(/#/g, "");
+  if (normalized.length < 3 || !tokens(title).length) return false;
+  return !new Set(["home", "news", "breaking", "latest", "update"]).has(normalized);
+}
+
+function shortTrendTitle(input: string) {
+  let title = input
+    .replace(/\s+/g, " ")
+    .replace(/^[“”'"‘’]+|[“”'"‘’]+$/g, "")
+    .replace(/^(breaking|exclusive|watch|video|analysis|explained|who is|what is)\s*[:?—-]*\s*/i, "")
+    .trim();
+  const ugliestDog = title.match(/^Meet\s+([^,]+),.*World'?s Ugliest Dog/i);
+  if (ugliestDog) return `${ugliestDog[1]}, Ugliest Dog Winner`;
+  const foodBear = title.match(/\b(bear|polar bear|black bear|brown bear)\b.*\bbroke into\b.*\b(KFC|pizza|tacos?|food)\b/i);
+  if (foodBear) return `${foodBear[2].toUpperCase()}-Stealing ${foodBear[1].replace(/\b\w/g, (letter) => letter.toUpperCase())}`;
+  const bearAttack = title.match(/\bmauled by (?:a |an )?((?:black|brown|polar|grizzly) bear)\b/i);
+  if (bearAttack) return `${bearAttack[1].replace(/\b\w/g, (letter) => letter.toUpperCase())} ${/trail/i.test(title) ? "Trail " : ""}Attack`;
+  const zooAnimals = title.match(/\b(?:at )?(?:a )?([A-Z][\w'-]+) zoo\b.*\banimals?\b/i);
+  if (zooAnimals) return `${zooAnimals[1]} Zoo Animals`;
+  const firstSentence = title.split(/(?<=[.!?])\s+/)[0];
+  if (firstSentence.split(/\s+/).length >= 2) title = firstSentence;
+  const segments = title.split(/\s+(?:—|–|\|)\s+|:\s+/).map((part) => part.trim()).filter(Boolean);
+  if (segments[0] && segments[0].split(/\s+/).length >= 2) title = segments[0];
+  title = title
+    .replace(/^meet\s+/i, "")
+    .replace(/\b(?:confirmed|explained|what we know|everything to know|see (?:it|them) in action)\b.*$/i, "")
+    .replace(/[.!?;,]+$/g, "")
+    .trim();
+  let words = title.split(/\s+/).filter(Boolean);
+  if (words.length > 8) words = words.slice(0, 8);
+  while (words.join(" ").length > 58 && words.length > 2) words.pop();
+  const weakEndings = new Set(["a", "an", "and", "at", "by", "for", "her", "his", "of", "the", "than", "to", "while", "with"]);
+  while (words.length > 2 && weakEndings.has(normalize(words.at(-1) ?? ""))) words.pop();
+  return words.join(" ").replace(/[,:;.!?]+$/g, "") || input.trim().slice(0, 58);
 }
 
 function slug(title: string) {
@@ -431,12 +610,12 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
   const text = normalize(title);
   const wordSet = new Set(text.split(/\s+/));
   const match = (values: string[]) => values.some((value) => value.includes(" ") ? text.includes(value) : wordSet.has(value));
-  if (match(["cat", "kitten", "feline"])) return ["Animals", "Cats"];
-  if (match(["dog", "puppy", "canine"])) return ["Animals", "Dogs"];
-  if (match(["bear", "polar"])) return ["Animals", "Bears"];
-  if (match(["bird", "crow", "eagle", "owl", "parrot"])) return ["Animals", "Birds"];
-  if (match(["whale", "shark", "dolphin", "octopus", "ocean", "seal"])) return ["Animals", "Marine"];
-  if (match(["animal", "wildlife", "zoo", "capybara", "elephant", "lion", "tiger"])) return ["Animals", "Wildlife"];
+  if (match(["cat", "cats", "kitten", "kittens", "feline", "tabby"])) return ["Animals", "Cats"];
+  if (match(["dog", "dogs", "puppy", "puppies", "canine", "pup"])) return ["Animals", "Dogs"];
+  if (match(["bear", "bears", "polar bear", "panda", "grizzly"])) return ["Animals", "Bears"];
+  if (match(["bird", "birds", "crow", "eagle", "owl", "parrot", "penguin", "duck", "goose", "falcon"])) return ["Animals", "Birds"];
+  if (match(["whale", "shark", "dolphin", "octopus", "ocean", "seal", "orca", "sea turtle", "manatee", "aquarium"])) return ["Animals", "Marine"];
+  if (match(["animal", "animals", "wildlife", "zoo", "pet", "pets", "veterinarian", "animal rescue", "shelter", "capybara", "elephant", "lion", "tiger", "fox", "wolf", "monkey", "gorilla", "otter", "rabbit", "deer", "horse", "cow"])) return ["Animals", "Wildlife"];
   if (match(["football", "soccer", "goalkeeper", "quarterback", "nfl", "mls", "wolverines", "premier league", "champions league"])) return ["Sports", "Football"];
   if (match(["cricket", "ipl", "wicket"])) return ["Sports", "Cricket"];
   if (match(["basketball", "nba", "wnba", "ncaa", "lakers", "celtics", "warriors", "knicks", "bulls", "nets"])) return ["Sports", "Basketball"];
@@ -451,8 +630,12 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
   if (match(["meme", "joke", "shitpost", "copypasta"])) return ["Internet culture", "Memes"];
   if (match(["slang", "phrase", "word", "saying"])) return ["Internet culture", "Language"];
   if (match(["creator lore", "fandom", "stan", "internet drama"])) return ["Internet culture", "Creator lore"];
-  if (match(["ai", "tech", "software", "app", "iphone", "android", "google", "openai", "robot", "computer", "claude", "anthropic", "qwen", "risc v", "system prompt", "firefox", "cloudflare"])) return ["News", "Technology"];
-  if (match(["science", "space", "nasa", "research", "study"])) return ["News", "Science"];
+  if (match(["cybersecurity", "cyberattack", "hack", "hacker", "malware", "spyware", "ransomware", "data breach"])) return ["Technology", "Cybersecurity"];
+  if (match(["space", "nasa", "spacex", "rocket", "starship", "moon", "mars", "satellite", "spacecraft"])) return ["Technology", "Space"];
+  if (match(["startup", "founder", "venture capital", "funding round", "seed round"])) return ["Technology", "Startups"];
+  if (match(["ai", "artificial intelligence", "openai", "chatgpt", "robot", "robotics", "claude", "anthropic", "gemini", "qwen", "llm", "model"])) return ["Technology", "AI"];
+  if (match(["tech", "technology", "software", "app", "iphone", "ipad", "airpods", "android", "apple", "google", "microsoft", "meta", "computer", "chip", "nvidia", "firefox", "cloudflare", "gadget"])) return ["Technology", "Consumer tech"];
+  if (match(["science", "research", "study", "climate", "medicine", "health"])) return ["News", "Science"];
   if (match(["market", "company", "business", "stock", "bank", "economy"])) return ["News", "Business"];
   if (match(["war", "government", "president", "trump", "biden", "republican", "democrat", "election", "congress", "senate", "governor", "white house", "supreme court", "attorney general", "military", "commander", "troops", "court"])) return ["News", "World"];
   if (match(["culture", "art", "book", "museum", "festival", "fashion"])) return ["News", "Culture"];
@@ -462,7 +645,7 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
 }
 
 function toneFor(category: string) {
-  return ({ Animals: "ice", News: "amber", "Viral events": "violet", "Internet culture": "blue", Entertainment: "rose", Sports: "green", "Food & drink": "orange" } as Record<string, string>)[category] || "sand";
+  return ({ Animals: "ice", Technology: "blue", News: "amber", "Viral events": "violet", "Internet culture": "blue", Entertainment: "rose", Sports: "green", "Food & drink": "orange" } as Record<string, string>)[category] || "sand";
 }
 
 function ageLabel(date: string) {
@@ -515,13 +698,14 @@ function buildTrend(cluster: Candidate[]): Trend {
         }
       : item.platform.metric;
   }
-  const keywords = tokens(leader.title).slice(0, 5);
+  const displayTitle = shortTrendTitle(leader.title);
+  const keywords = tokens(displayTitle).slice(0, 5);
   const mark = keywords.slice(0, 2).map((word) => word[0]?.toUpperCase()).join("") || "FR";
   const score = windows(baseScore) as WindowValues;
 
   return {
     id: slug(leader.title),
-    title: leader.title,
+    title: displayTitle,
     url: leader.url,
     category,
     subcategory,
@@ -538,7 +722,7 @@ function buildTrend(cluster: Candidate[]): Trend {
     forecast,
     forecastTime,
     confidence: clamp(52 + diversity * 9 + Math.min(12, cluster.length * 2), 55, 91),
-    summary: `${leader.title} is registering across ${diversity} measured signal ${diversity === 1 ? "surface" : "surfaces"}. Front Run is tracking observed search, headline, discussion and platform activity without converting them into invented post counts.`,
+    summary: `${leader.title.replace(/[.!?]+$/, "")}. ${platforms.x ? `X recorded ${platforms.x.windows["24h"].toLocaleString()} original posts in the last 24 hours` : `Front Run found ${cluster.length} recent observation${cluster.length === 1 ? "" : "s"}`} across ${diversity} measured ${diversity === 1 ? "source" : "sources"}.`,
     signals: [
       `${cluster.length} independent observations in this cluster`,
       `${diversity} measured source ${diversity === 1 ? "surface" : "surfaces"}`,
@@ -549,7 +733,10 @@ function buildTrend(cluster: Candidate[]): Trend {
     tone: toneFor(category),
     activity,
     historyPoints: 0,
-    evidence: cluster.slice(0, 6).map((item) => ({ source: item.sourceLabel, title: item.title, url: item.url, detail: item.detail })),
+    evidence: [...new Map(cluster.flatMap((item) => [
+      { source: item.sourceLabel, title: item.title, url: item.url, detail: item.detail },
+      ...(item.extraEvidence ?? []),
+    ]).map((item) => [item.url, item])).values()].slice(0, 10),
   };
 }
 
@@ -560,17 +747,27 @@ function clusterCandidates(items: Candidate[]) {
     if (existing) existing.push(item);
     else clusters.push([item]);
   }
-  return clusters.map(buildTrend).sort((a, b) => b.score["30m"] - a.score["30m"]).slice(0, 32);
+  const ranked = clusters.map(buildTrend).sort((a, b) => b.score["30m"] - a.score["30m"]);
+  const reserved = [
+    ...ranked.filter((trend) => trend.category === "Animals").slice(0, 8),
+    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 8),
+  ];
+  const selected = new Map(reserved.map((trend) => [trend.id, trend]));
+  for (const trend of ranked) {
+    if (selected.size >= 40) break;
+    selected.set(trend.id, trend);
+  }
+  return [...selected.values()].sort((a, b) => b.score["30m"] - a.score["30m"]);
 }
 
-type ModelAnalysis = { id: string; category: string; subcategory: string; summary: string; forecast: string; forecastTime: string; signals: string[] };
+type ModelAnalysis = { id: string; title: string; category: string; subcategory: string; summary: string; forecast: string; forecastTime: string; signals: string[] };
 
 async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mode: "openai" | "heuristic"; status: SourceStatus }> {
   if (!runtime.OPENAI_API_KEY) {
     return { trends, mode: "heuristic", status: { key: "analysis", label: "AI forecast", state: "needs-key", detail: "Add OPENAI_API_KEY for model-written classification and forecasts", itemCount: 0 } };
   }
   try {
-    const batch = trends.slice(0, 16).map((trend) => ({ id: trend.id, title: trend.title, category: trend.category, phase: trend.phase, score: trend.score["30m"], activity: trend.activity, sources: trend.sources, saturation: trend.saturation, evidence: trend.evidence.map((item) => `${item.source}: ${item.detail}`) }));
+    const batch = trends.slice(0, 14).map((trend) => ({ id: trend.id, title: trend.title, category: trend.category, phase: trend.phase, score: trend.score["30m"], activity: trend.activity, sources: trend.sources, saturation: trend.saturation, evidence: trend.evidence.slice(0, 6).map((item) => `${item.source}: ${item.title} — ${item.detail}`) }));
     const categoryNames = TREND_TAXONOMY.map((category) => category.name);
     const subcategoryNames = TREND_TAXONOMY.flatMap((category) => [...category.subcategories]);
     const schema = {
@@ -583,26 +780,36 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
             type: "object",
             additionalProperties: false,
             properties: {
-              id: { type: "string" }, category: { type: "string", enum: categoryNames }, subcategory: { type: "string", enum: subcategoryNames }, summary: { type: "string" }, forecast: { type: "string" }, forecastTime: { type: "string" }, signals: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 },
+              id: { type: "string" }, title: { type: "string", maxLength: 58 }, category: { type: "string", enum: categoryNames }, subcategory: { type: "string", enum: subcategoryNames }, summary: { type: "string", maxLength: 320 }, forecast: { type: "string", maxLength: 220 }, forecastTime: { type: "string" }, signals: { type: "array", items: { type: "string" }, minItems: 3, maxItems: 3 },
             },
-            required: ["id", "category", "subcategory", "summary", "forecast", "forecastTime", "signals"],
+            required: ["id", "title", "category", "subcategory", "summary", "forecast", "forecastTime", "signals"],
           },
         },
       },
       required: ["analyses"],
     };
-    const response = await fetchJson<{ output?: Array<{ content?: Array<{ type?: string; text?: string }> }> }>("https://api.openai.com/v1/responses", {
+    const requestModel = () => fetchJson<{ output?: Array<{ content?: Array<{ type?: string; text?: string }> }> }>("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { Authorization: `Bearer ${runtime.OPENAI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: runtime.OPENAI_MODEL || "gpt-5.6-luna",
+        reasoning: { effort: "none" },
+        max_output_tokens: 5_000,
         input: [
-          { role: "system", content: "You are a trend intelligence analyst. Classify each signal, explain its present trajectory, and forecast the next likely attention event. Never invent counts, sources, quotes, or facts. Treat activity values from different sources as non-comparable observations." },
+          { role: "system", content: "You are Front Run's trend editor. For every signal: write a clear 2–7 word headline-style trend name (maximum 58 characters) centered on the named animal, person, product, event or memorable hook—not the full publisher headline. Write a factual one- or two-sentence summary of what happened and why attention is moving. Then classify and forecast the next likely attention event. Never invent facts, counts, sources, quotes, links, or identities; only use supplied evidence. Treat activity values from different sources as non-comparable observations." },
           { role: "user", content: JSON.stringify(batch) },
         ],
         text: { format: { type: "json_schema", name: "front_run_analysis", strict: true, schema } },
       }),
     }, 28_000);
+    let response;
+    try {
+      response = await requestModel();
+    } catch (error) {
+      if (!errorMessage(error).startsWith("429")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      response = await requestModel();
+    }
     const outputText = response.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text;
     if (!outputText) throw new Error("Model returned no structured output");
     const parsed = JSON.parse(outputText) as { analyses: ModelAnalysis[] };
@@ -614,16 +821,18 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
       const validClassification = taxonomyEntry?.subcategories.some((subcategory) => subcategory === analysis.subcategory);
       const category = validClassification ? analysis.category : trend.category;
       const subcategory = validClassification ? analysis.subcategory : trend.subcategory;
-      return { ...trend, category, subcategory, summary: analysis.summary, forecast: analysis.forecast, forecastTime: analysis.forecastTime, signals: analysis.signals, tone: toneFor(category) };
+      return { ...trend, title: shortTrendTitle(analysis.title), category, subcategory, summary: analysis.summary.trim(), forecast: analysis.forecast.trim(), forecastTime: analysis.forecastTime, signals: analysis.signals, tone: toneFor(category) };
     });
-    return { trends: enriched, mode: "openai", status: { key: "analysis", label: "AI forecast", state: "live", detail: `${runtime.OPENAI_MODEL || "gpt-5.6-luna"} structured analysis`, itemCount: Math.min(16, trends.length) } };
+    return { trends: enriched, mode: "openai", status: { key: "analysis", label: "AI forecast", state: "live", detail: `${runtime.OPENAI_MODEL || "gpt-5.6-luna"} short names, summaries and structured forecasts`, itemCount: Math.min(14, trends.length) } };
   } catch (error) {
     return { trends, mode: "heuristic", status: { key: "analysis", label: "AI forecast", state: "error", detail: `Heuristic fallback · ${errorMessage(error)}`, itemCount: 0 } };
   }
 }
 
 export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map()): Promise<TrendsPayload> {
-  const coreCollectors = await Promise.all([collectGoogleTrends(), collectGoogleNews(), collectHackerNews(), collectX(), collectYouTube()]);
+  const publicCollectors = await Promise.all([collectGoogleTrends(), collectGoogleNews(), collectHackerNews(), collectYouTube()]);
+  const x = await collectX(publicCollectors.flatMap((collector) => collector.items));
+  const coreCollectors = [...publicCollectors, x];
   const tiktok = await collectTikTok(coreCollectors.flatMap((collector) => collector.items));
   const collectors = [...coreCollectors, tiktok];
   const allItems = collectors.flatMap((collector) => collector.items);

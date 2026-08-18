@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDot,
   Clock3,
+  Cpu,
   ExternalLink,
   Flame,
   Gauge,
@@ -37,7 +38,7 @@ const timeWindows: { key: TimeWindow; label: string }[] = [
   { key: "24h", label: "24 hours" },
 ];
 
-const categoryIcons = { Animals: PawPrint, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
+const categoryIcons = { Animals: PawPrint, Technology: Cpu, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
 const categories = [
   { name: "All trends", icon: LayoutGrid, subs: [] as string[] },
   ...TREND_TAXONOMY.map((category) => ({ name: category.name, icon: categoryIcons[category.name], subs: [...category.subcategories] })),
@@ -155,6 +156,8 @@ export default function Home() {
   const acceleratingCount = visibleTrends.filter((trend) => trend.phase === "Accelerating").length;
   const coolingCount = visibleTrends.filter((trend) => trend.phase === "Cooling").length;
   const liveSourceCount = payload?.sources.filter((source) => source.state === "live" && source.key !== "analysis").length ?? 0;
+  const disconnectedSources = payload?.sources.filter((source) => source.state === "needs-key" && source.key !== "analysis").map((source) => source.label) ?? [];
+  const analysisStatus = payload?.sources.find((source) => source.key === "analysis");
   const elapsed = payload ? Math.max(0, Math.floor((clock - new Date(payload.refreshedAt).getTime()) / 1000)) : 0;
 
   const selectCategory = (name: string) => {
@@ -245,8 +248,8 @@ export default function Home() {
           </section>
 
           {error && <div className="feed-notice feed-error"><span>{error}</span><button onClick={() => void loadTrends(true)}>Try again</button></div>}
-          {payload && payload.sources.some((source) => source.state === "needs-key") && (
-            <div className="feed-notice"><span>Live public feeds are active. Add X, TikTok, YouTube and OpenAI keys to unlock their measured signals.</span><span className="model-mode">Forecast: {payload.analysisMode}</span></div>
+          {payload && (disconnectedSources.length > 0 || analysisStatus?.state === "error") && (
+            <div className="feed-notice"><span>{disconnectedSources.length ? `Optional feeds not connected: ${disconnectedSources.join(" and ")}. ` : ""}{analysisStatus?.state === "error" ? "OpenAI analysis is temporarily using the built-in fallback." : "All connected feeds are active."}</span><span className="model-mode">Forecast: {payload.analysisMode}</span></div>
           )}
 
           <section className="control-rail" aria-label="Trend time window">
@@ -258,7 +261,7 @@ export default function Home() {
             <section className="hero-grid">
               <article className={`lead-signal tone-${headlineTrends[0].tone}`}>
                 <div className="lead-topline"><span className="lead-rank">01 / strongest signal</span><PhasePill phase={headlineTrends[0].phase} /></div>
-                <div className="lead-body"><div><div className="lead-category">{headlineTrends[0].category} · {headlineTrends[0].subcategory}</div><h2>{headlineTrends[0].title}</h2><p>{headlineTrends[0].forecast}</p></div><ScoreRing value={headlineTrends[0].score[activeWindow]} /></div>
+                <div className="lead-body"><div><div className="lead-category">{headlineTrends[0].category} · {headlineTrends[0].subcategory}</div><h2>{headlineTrends[0].title}</h2><p>{headlineTrends[0].summary}</p></div><ScoreRing value={headlineTrends[0].score[activeWindow]} /></div>
                 <div className="lead-chart"><SparkBars values={headlineTrends[0].spark} phase={headlineTrends[0].phase} large /><div className="chart-baseline"><span>−{activeWindow}</span><span>now</span></div></div>
                 <div className="lead-metrics">
                   <div><span>{Object.keys(headlineTrends[0].platforms ?? {}).length ? "Platform posts" : "Observed activity"}</span><strong>{platformActivityLabel(headlineTrends[0], activeWindow)}</strong></div>
@@ -291,7 +294,7 @@ export default function Home() {
               <div className="trend-list">
                 {visibleTrends.map((trend, index) => (
                   <button className="trend-row" key={trend.id} onClick={() => setSelectedTrend(trend)}>
-                    <div className="trend-identity"><span className="trend-rank">{String(index + 1).padStart(2, "0")}</span><div className={`trend-mark tone-${trend.tone}`}>{trend.mark}</div><div><strong>{trend.title}</strong><span>{trend.category} / {trend.subcategory} · first seen {trend.firstSeen}</span></div></div>
+                    <div className="trend-identity"><span className="trend-rank">{String(index + 1).padStart(2, "0")}</span><div className={`trend-mark tone-${trend.tone}`}>{trend.mark}</div><div><strong>{trend.title}</strong><span>{trend.category} / {trend.subcategory} · {trend.evidence.length} links · first seen {trend.firstSeen}</span></div></div>
                     <div className="momentum-cell"><SparkBars values={trend.spark} phase={trend.phase} /><PhasePill phase={trend.phase} /></div>
                     <div className="volume-cell"><strong>{platformActivityLabel(trend, activeWindow)}</strong><span className={trend.growth[activeWindow] >= 0 ? "positive" : "negative"}>{trend.growth[activeWindow] >= 0 ? "+" : ""}{trend.growth[activeWindow]}%</span></div>
                     <ScoreRing value={trend.score[activeWindow]} compact /><span className="row-arrow"><ChevronRight size={17} /></span>
@@ -335,7 +338,7 @@ export default function Home() {
                 <div className="drawer-section-head"><div><span>Trajectory</span><h3>Momentum is {selectedTrend.phase.toLowerCase()}</h3></div><strong className={selectedTrend.growth[activeWindow] >= 0 ? "positive" : "negative"}>{selectedTrend.growth[activeWindow] >= 0 ? "+" : ""}{selectedTrend.growth[activeWindow]}%</strong></div>
                 <div className="drawer-chart"><SparkBars values={selectedTrend.spark} phase={selectedTrend.phase} large /></div><div className="drawer-axis"><span>First detection</span><span>Current</span><span>Projected</span></div>
               </section>
-              <section className="drawer-section"><span className="drawer-label">Analyst read</span><p className="analyst-copy">{selectedTrend.summary}</p><div className="signal-reasons">{selectedTrend.signals.map((signal) => <div key={signal}><Zap size={14} /><span>{signal}</span></div>)}</div></section>
+              <section className="drawer-section"><span className="drawer-label">Summary</span><p className="analyst-copy">{selectedTrend.summary}</p><div className="signal-reasons">{selectedTrend.signals.map((signal) => <div key={signal}><Zap size={14} /><span>{signal}</span></div>)}</div></section>
               <section className="drawer-section">
                 <div className="drawer-section-head"><div><span>Source mix</span><h3>Where the signal lives</h3></div><small>{formatNumber(selectedTrend.mentions[activeWindow])} observed activity</small></div>
                 <div className="source-bars">{Object.entries(selectedTrend.sources).map(([source, value]) => <div key={source}><div><span>{source === "x" ? "X" : source === "hackernews" ? "Hacker News" : source.charAt(0).toUpperCase() + source.slice(1)}</span><strong>{value}%</strong></div><div className="source-track"><span style={{ width: `${value}%` }} /></div></div>)}</div>
@@ -349,8 +352,8 @@ export default function Home() {
                 </div>)}</div>
               </section>}
               <section className="drawer-section">
-                <div className="drawer-section-head"><div><span>Evidence</span><h3>Measured observations</h3></div><small>{selectedTrend.evidence.length} links</small></div>
-                <div className="evidence-list">{selectedTrend.evidence.map((item) => <a key={`${item.source}-${item.url}`} href={item.url} target="_blank" rel="noreferrer"><span><strong>{item.source}</strong><small>{item.detail}</small></span><ExternalLink size={14} /></a>)}</div>
+                <div className="drawer-section-head"><div><span>Viral links</span><h3>News coverage and leading posts</h3></div><small>{selectedTrend.evidence.length} links</small></div>
+                <div className="evidence-list">{selectedTrend.evidence.map((item) => <a key={`${item.source}-${item.url}`} href={item.url} target="_blank" rel="noreferrer"><span><strong>{item.title}</strong><small>{item.source} · {item.detail}</small></span><ExternalLink size={14} /></a>)}</div>
               </section>
               <section className="drawer-section"><div className="saturation-row"><div><span>Saturation</span><h3>{selectedTrend.saturation < 30 ? "Early and underexposed" : selectedTrend.saturation < 70 ? "Expanding audience" : "Approaching exhaustion"}</h3></div><strong>{selectedTrend.saturation}%</strong></div><div className="saturation-track"><span style={{ width: `${selectedTrend.saturation}%` }} /></div><div className="tag-row">{selectedTrend.tags.map((item) => <span key={item}>{item}</span>)}</div></section>
             </div>

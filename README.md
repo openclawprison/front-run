@@ -9,9 +9,9 @@ Front Run tracks trends only. It does not ingest, display, or promote tokens.
 Front Run never invents platform counts. Each connector reports its own metric and availability:
 
 - Google Trends RSS: breakout searches and approximate search traffic
-- Google News RSS: publisher pickup and headline crossover
+- Google News RSS: US top stories plus dedicated Animals, Technology, and Viral searches
 - Hacker News API: points and discussion activity
-- X API v2: Trends by WOEID plus exact recent post counts in minute buckets
+- X API v2: Trends by WOEID, news-led exact post counts, and direct links to leading public posts
 - YouTube Data API: popular-video views and view velocity
 - TikTok through Bright Data: sampled keyword-matched posts, plays, shares, and comments
 - OpenAI Responses API: classification and trajectory copy only; the model cannot alter source counts
@@ -38,7 +38,7 @@ Required for persistent production history:
 
 Optional data providers:
 
-- `X_BEARER_TOKEN`, `X_WOEIDS`, `X_COUNT_ENRICH_LIMIT`
+- `X_BEARER_TOKEN`, `X_WOEIDS`, `X_COUNT_ENRICH_LIMIT`, `X_POSTS_PER_TREND`
 - `YOUTUBE_API_KEY`, `YOUTUBE_REGIONS`
 - `BRIGHTDATA_API_TOKEN`, `TIKTOK_QUERY_LIMIT`, `TIKTOK_POSTS_PER_QUERY`, `TIKTOK_SEED_QUERIES`
 - `OPENAI_API_KEY`, `OPENAI_MODEL`

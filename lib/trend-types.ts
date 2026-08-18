@@ -4,7 +4,8 @@ export type WindowValues = Record<TimeWindow, number>;
 
 export const TREND_TAXONOMY = [
   { name: "Animals", subcategories: ["Cats", "Dogs", "Bears", "Birds", "Marine", "Wildlife"] },
-  { name: "News", subcategories: ["World", "Technology", "Business", "Science", "Culture"] },
+  { name: "Technology", subcategories: ["AI", "Consumer tech", "Space", "Startups", "Cybersecurity"] },
+  { name: "News", subcategories: ["World", "Business", "Science", "Culture"] },
   { name: "Viral events", subcategories: ["Challenges", "Moments", "Reactions", "Formats"] },
   { name: "Internet culture", subcategories: ["Memes", "Language", "Creator lore"] },
   { name: "Entertainment", subcategories: ["Music", "Film & TV", "Creators"] },
