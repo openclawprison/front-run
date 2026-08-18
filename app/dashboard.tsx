@@ -116,7 +116,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
   const [loading, setLoading] = useState(!initialPayload);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [clock, setClock] = useState(() => Date.now());
+  const [clock, setClock] = useState(() => initialPayload ? new Date(initialPayload.refreshedAt).getTime() : 0);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const loadTrends = useCallback(async (force = false) => {

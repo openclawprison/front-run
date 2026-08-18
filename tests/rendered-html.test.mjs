@@ -26,6 +26,8 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /TREND_TAXONOMY/);
   assert.match(dashboard, /Newest first/);
   assert.match(dashboard, /firstSeenAt/);
+  assert.match(dashboard, /initialPayload \? new Date\(initialPayload\.refreshedAt\)\.getTime\(\) : 0/);
+  assert.doesNotMatch(dashboard, /useState\(\(\) => Date\.now\(\)\)/);
   assert.doesNotMatch(dashboard, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
   assert.match(route, /readOrRefreshTrends/);
