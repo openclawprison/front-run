@@ -135,10 +135,10 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
 async function collectGoogleNews(): Promise<CollectorResult> {
   try {
     const feeds = [
-      { label: "US top stories", query: "", limit: 32, strength: 68 },
-      { label: "Animal watch", query: "(animal OR wildlife OR zoo OR pet OR cat OR dog OR bear OR whale OR dolphin OR rescue) when:1d", limit: 24, strength: 74 },
-      { label: "Technology watch", query: "(technology OR AI OR robot OR Apple OR Google OR OpenAI OR startup OR cybersecurity OR space) when:1d", limit: 24, strength: 73 },
-      { label: "Viral watch", query: "(viral OR meme OR \"caught on camera\" OR \"social media\") when:1d", limit: 18, strength: 70 },
+      { label: "US top stories", query: "", limit: 32, strength: 62 },
+      { label: "Animal watch", query: "(animal OR wildlife OR zoo OR pet OR cat OR dog OR bear OR whale OR dolphin OR rescue) when:1d", limit: 24, strength: 58 },
+      { label: "Technology watch", query: "(technology OR AI OR robot OR Apple OR Google OR OpenAI OR startup OR cybersecurity OR space) when:1d", limit: 24, strength: 58 },
+      { label: "Viral watch", query: "(viral OR meme OR \"caught on camera\" OR \"social media\") when:1d", limit: 18, strength: 58 },
     ];
     const responses = await Promise.all(feeds.map((feed) => {
       const base = feed.query ? "https://news.google.com/rss/search" : "https://news.google.com/rss";
@@ -276,7 +276,7 @@ async function collectXTopPosts(trendName: string): Promise<{ evidence: TrendEvi
     headers: { Authorization: `Bearer ${runtime.X_BEARER_TOKEN}` },
   });
   const users = new Map((response.includes?.users ?? []).map((user) => [user.id, user]));
-  const ranked = [...(response.data ?? [])].sort((a, b) => xPostEngagement(b) - xPostEngagement(a)).slice(0, 3);
+  const ranked = [...(response.data ?? [])].filter((post) => xPostEngagement(post) > 0).sort((a, b) => xPostEngagement(b) - xPostEngagement(a)).slice(0, 3);
   const evidence = ranked.map((post) => {
     const user = post.author_id ? users.get(post.author_id) : undefined;
     const username = user?.username || "i";
@@ -577,6 +577,11 @@ function shortTrendTitle(input: string) {
   if (bearAttack) return `${bearAttack[1].replace(/\b\w/g, (letter) => letter.toUpperCase())} ${/trail/i.test(title) ? "Trail " : ""}Attack`;
   const zooAnimals = title.match(/\b(?:at )?(?:a )?([A-Z][\w'-]+) zoo\b.*\banimals?\b/i);
   if (zooAnimals) return `${zooAnimals[1]} Zoo Animals`;
+  const narratedStory = title.match(/^In\s+['“]([^'”]+)['”],?\s+(?:a|an|the)\s+((?:canine|feline|animal|dog|cat)(?:\s+narrator)?)/i);
+  if (narratedStory) return `${narratedStory[1].replace(/[,:;.!?]+$/g, "")}, the ${narratedStory[2].replace(/\b\w/g, (letter) => letter.toUpperCase())}`;
+  if (/FOSCA/i.test(title) && /rescue pet/i.test(title)) return "FOSCA Rescue Pet Calendar";
+  const zooHero = title.match(/\b(HeroRATs)\b.*\b([A-Z][a-z]+) Zoo\b/);
+  if (zooHero) return `${zooHero[2]} Zoo’s ${zooHero[1]}`;
   const firstSentence = title.split(/(?<=[.!?])\s+/)[0];
   if (firstSentence.split(/\s+/).length >= 2) title = firstSentence;
   const segments = title.split(/\s+(?:—|–|\|)\s+|:\s+/).map((part) => part.trim()).filter(Boolean);
@@ -751,8 +756,8 @@ function clusterCandidates(items: Candidate[]) {
   }
   const ranked = clusters.map(buildTrend).sort((a, b) => b.score["30m"] - a.score["30m"]);
   const reserved = [
-    ...ranked.filter((trend) => trend.category === "Animals").slice(0, 8),
-    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 8),
+    ...ranked.filter((trend) => trend.category === "Animals").slice(0, 10),
+    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 10),
   ];
   const selected = new Map(reserved.map((trend) => [trend.id, trend]));
   for (const trend of ranked) {
