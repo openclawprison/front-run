@@ -56,10 +56,10 @@ delete process.env.BRIGHTDATA_API_TOKEN;
 
 globalThis.fetch = (async (input: string | URL | Request) => {
   const url = String(input);
-  if (url.includes("origin.knowyourmeme.com/categories/meme")) return new Response(kymEntriesHtml, { status: 200 });
-  if (url.includes("origin.knowyourmeme.com/newsfeed/trending")) return new Response(kymTrendingHtml, { status: 200 });
-  if (url.includes("origin.knowyourmeme.com/newsfeed/updated")) return new Response(kymUpdatedHtml, { status: 200 });
-  if (url.includes("origin.knowyourmeme.com/newsfeed/researching")) return new Response(kymResearchingHtml, { status: 200 });
+  if (/https:\/\/(?:origin\.)?knowyourmeme\.com\/categories\/meme/.test(url)) return new Response(kymEntriesHtml, { status: 200 });
+  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/trending/.test(url)) return new Response(kymTrendingHtml, { status: 200 });
+  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/updated/.test(url)) return new Response(kymUpdatedHtml, { status: 200 });
+  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/researching/.test(url)) return new Response(kymResearchingHtml, { status: 200 });
   if (url.includes("trends.google.com/trending/rss")) return new Response(feed, { status: 200 });
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
   if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org|houstonzoo\.org|blog\.zoo\.org|zooatlanta\.org|denverzoo\.org|lpzoo\.org|phoenixzoo\.org/.test(url)) return new Response(feed, { status: 200 });

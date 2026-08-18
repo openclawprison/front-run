@@ -180,9 +180,11 @@ async function collectGoogleNews(): Promise<CollectorResult> {
         const split = rawTitle.lastIndexOf(" - ");
         const title = (split > 0 ? rawTitle.slice(0, split) : rawTitle).trim();
         const key = normalize(title);
-        if (!isUsefulTitle(title) || seen.has(key)) return;
+        if (!isUsefulTitle(title) || isLowSignalMemeCollection(title) || seen.has(key)) return;
         const outlet = split > 0 ? rawTitle.slice(split + 3) : "Publisher";
         if (/^(facebook\.com|instagram|youtube|tiktok)$/i.test(outlet.trim())) return;
+        if (feed.label === "Meme watch" && !/\b(meme|memes|trend|viral|reaction image|image macro|format|template|redraw)\b/i.test(title)) return;
+        if (feed.label === "Know Your Meme coverage" && !/know your meme/i.test(outlet)) return;
         const zooDiscovery = feed.label === "Zoo arrivals" || feed.label === "Famous US zoos" || feed.label === "More US zoos" || feed.label === "Moo Deng and Asian zoos";
         if (zooDiscovery && !/\b(animal|wildlife|baby|newborn|born|birth|hatch|hatched|chick|cub|calf|rescue|rescued|arrival|arrives|species|hippo|gorilla|monkey|ape|giraffe|elephant|panda|bear|cat|dog|bird|penguin|otter|capybara|rhino|tiger|lion|leopard|fox|wolf|whale|dolphin|porpoise|seal|turtle|snake|lizard|frog|kagu)\b/i.test(title)) return;
         seen.add(key);
@@ -203,6 +205,7 @@ async function collectGoogleNews(): Promise<CollectorResult> {
               ? "Formats"
               : /\b(resurgence|resurges|returns|revival|back again)\b/i.test(title) ? "Resurgences" : "Trending",
           } : undefined,
+          extraEvidence: feed.label === "Meme watch" || feed.label === "Know Your Meme coverage" ? [memeXSearchEvidence(title)] : undefined,
         });
       });
     });
@@ -304,14 +307,23 @@ function kymEditorials(html: string, subcategory: "Trending" | "New entries" | "
 async function collectKnowYourMeme(): Promise<CollectorResult> {
   const observedAt = Date.now();
   const surfaces = [
-    { url: "https://origin.knowyourmeme.com/categories/meme?sort=newest&status=all", kind: "entries" as const },
-    { url: "https://origin.knowyourmeme.com/newsfeed/trending", kind: "editorial" as const, subcategory: "Trending" as const, limit: 8 },
-    { url: "https://origin.knowyourmeme.com/newsfeed/updated", kind: "editorial" as const, subcategory: "Resurgences" as const, limit: 6 },
-    { url: "https://origin.knowyourmeme.com/newsfeed/researching", kind: "editorial" as const, subcategory: "New entries" as const, limit: 6 },
+    { urls: ["https://knowyourmeme.com/categories/meme?sort=newest&status=all", "https://origin.knowyourmeme.com/categories/meme?sort=newest&status=all"], kind: "entries" as const },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/trending", "https://origin.knowyourmeme.com/newsfeed/trending"], kind: "editorial" as const, subcategory: "Trending" as const, limit: 8 },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/updated", "https://origin.knowyourmeme.com/newsfeed/updated"], kind: "editorial" as const, subcategory: "Resurgences" as const, limit: 6 },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/researching", "https://origin.knowyourmeme.com/newsfeed/researching"], kind: "editorial" as const, subcategory: "New entries" as const, limit: 6 },
   ];
-  const results = await Promise.allSettled(surfaces.map((surface) => fetchText(surface.url, {
-    headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 (compatible; FrontRun/1.0; +https://front-run.onrender.com/)" },
-  }, 18_000)));
+  const fetchSurface = async (urls: string[]) => {
+    let lastError: unknown;
+    for (const url of urls) {
+      try {
+        return await fetchText(url, { headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 (compatible; FrontRun/1.0; +https://front-run.onrender.com/)" } }, 18_000);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error("KYM surface unavailable");
+  };
+  const results = await Promise.allSettled(surfaces.map((surface) => fetchSurface(surface.urls)));
   const seen = new Set<string>();
   const items: Candidate[] = [];
   results.forEach((result, index) => {
@@ -334,7 +346,7 @@ async function collectKnowYourMeme(): Promise<CollectorResult> {
       rssItems(xml).slice(0, 12).forEach((entry, index) => {
         const rawTitle = tag(entry, "title");
         const title = rawTitle.replace(/\s+-\s+Know Your Meme$/i, "").trim();
-        if (!isUsefulTitle(title)) return;
+        if (!isUsefulTitle(title) || isLowSignalMemeCollection(title) || !/\b(meme|memes|trend|viral|reaction|format|template|redraw)\b/i.test(title)) return;
         items.push({
           id: `kym-fallback-${slug(title)}`,
           title,
@@ -1009,6 +1021,10 @@ function isUsefulTitle(title: string) {
   const normalized = normalize(title).replace(/#/g, "");
   if (normalized.length < 3 || !tokens(title).length) return false;
   return !new Set(["home", "news", "breaking", "latest", "update", "detroit free press", "associated press", "new york times", "cbs news", "fox news"]).has(normalized);
+}
+
+function isLowSignalMemeCollection(title: string) {
+  return /^(?:the\s+)?best memes\b|^\d+\s+(?:hilarious|funny|stunning|bizarre|confusing|wholesome|random|optical|wild)\b|\b(?:weekly meme roundup|meme dump|memes of the week|enjoy (?:a|these|\d+) memes?)\b/i.test(title);
 }
 
 function compactTrendTitle(value: string) {
