@@ -232,6 +232,15 @@ function kymDate(value: string, fallback: number) {
   return new Date(Number.isFinite(timestamp) ? timestamp : fallback).toISOString();
 }
 
+function memeXSearchEvidence(title: string): TrendEvidence {
+  return {
+    source: "X search",
+    title: `Search X for “${shortTrendTitle(title)}”`,
+    url: `https://x.com/search?q=${encodeURIComponent(`"${shortTrendTitle(title)}" lang:en`)}`,
+    detail: "Discovery link only · exact counts and leading posts require working X API access",
+  };
+}
+
 function kymNewEntries(html: string, observedAt: number): Candidate[] {
   const items: Candidate[] = [];
   const anchors = html.matchAll(/<a\s+class=["']item["']([\s\S]*?)>/gi);
@@ -252,6 +261,7 @@ function kymNewEntries(html: string, observedAt: number): Candidate[] {
       detail: `Fresh encyclopedia entry · newest rank #${rank} at detection`,
       geography: "US internet culture",
       categoryHint: { category: "Memes", subcategory: "New entries" },
+      extraEvidence: [memeXSearchEvidence(title)],
     });
     if (items.length >= 18) break;
   }
@@ -284,6 +294,7 @@ function kymEditorials(html: string, subcategory: "Trending" | "New entries" | "
       detail: `${label} · KYM ${subcategory.toLowerCase()} surface${summary ? ` · ${summary.slice(0, 120)}` : ""}`,
       geography: "US internet culture",
       categoryHint: { category: "Memes", subcategory },
+      extraEvidence: [memeXSearchEvidence(title)],
     });
     if (items.length >= limit) break;
   }
@@ -336,6 +347,7 @@ async function collectKnowYourMeme(): Promise<CollectorResult> {
           detail: "KYM coverage discovered through Google News fallback",
           geography: "US internet culture",
           categoryHint: { category: "Memes", subcategory: "Trending" },
+          extraEvidence: [memeXSearchEvidence(title)],
         });
       });
     } catch {

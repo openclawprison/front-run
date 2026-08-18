@@ -113,6 +113,7 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.ok(observedXQueries.some((query) => query.includes("bear") && !query.includes("runner was the person")));
   assert.ok(observedXQueries.some((query) => /bicep|pam|corn dog|dip stack/i.test(query)));
   assert.ok(meme.evidence.some((item) => item.url.includes("knowyourmeme.com")));
+  assert.ok(meme.evidence.some((item) => item.source === "X search" && item.url.startsWith("https://x.com/search?")));
   assert.equal(payload.sources.find((source) => source.key === "kym")?.state, "live");
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /top-post links/);
   assert.equal(payload.pumpCoins[0]?.name, "Jimothy The Raccoon");
