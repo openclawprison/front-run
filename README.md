@@ -2,7 +2,7 @@
 
 Front Run is a live early-signal dashboard for finding internet trends before they saturate. It ranks clustered observations across 5-minute, 30-minute, 60-minute, 6-hour, and 24-hour windows, stores each collection run in Postgres, and estimates whether a signal is igniting, accelerating, peaking, or cooling.
 
-Front Run tracks trends only. It does not ingest, display, or promote tokens.
+Front Run's main ranking tracks internet trends. A separate Pump.fun attention radar shows what that platform is surfacing and attempts to trace each listing back to X, news, or an existing Front Run narrative. Coin activity is never mixed into the main trend score and is not a recommendation to buy.
 
 ## What is real data
 
@@ -10,10 +10,12 @@ Front Run never invents platform counts. Each connector reports its own metric a
 
 - Google Trends RSS: breakout searches and approximate search traffic
 - Google News RSS: US top stories plus dedicated Animals, Technology, and Viral searches
+- Direct publisher feeds: NPR, CBS News, The New York Times, The Verge, TechCrunch, WIRED, Mongabay, Catster, Smithsonian Science & Nature, Audubon, and the National Wildlife Federation
 - Hacker News API: points and discussion activity
 - X API v2: Trends by WOEID, news-led exact post counts, and direct links to leading public posts
 - YouTube Data API: popular-video views and view velocity
 - TikTok through Bright Data: sampled keyword-matched posts, plays, shares, and comments
+- Pump.fun: featured coins and leading Movers from the public Explore surface, plus creator-linked source metadata
 - OpenAI Responses API: classification and trajectory copy only; the model cannot alter source counts
 
 TikTok values are explicitly marked as a sample because keyword discovery does not expose the total TikTok firehose. X values from the recent-count endpoint are marked as official counts. If a key is missing or a provider fails, the source is shown as unavailable instead of being simulated.
@@ -39,11 +41,18 @@ Required for persistent production history:
 Optional data providers:
 
 - `X_BEARER_TOKEN`, `X_WOEIDS`, `X_COUNT_ENRICH_LIMIT`, `X_POSTS_PER_TREND`
+- `PUMPFUN_LIMIT`, `PUMPFUN_ENRICH_LIMIT`, `PUMPFUN_X_ENRICH_LIMIT` (no Pump.fun key required)
 - `YOUTUBE_API_KEY`, `YOUTUBE_REGIONS`
 - `BRIGHTDATA_API_TOKEN`, `TIKTOK_QUERY_LIMIT`, `TIKTOK_POSTS_PER_QUERY`, `TIKTOK_SEED_QUERIES`
 - `OPENAI_API_KEY`, `OPENAI_MODEL`
 
 The free public Google and Hacker News feeds work without credentials.
+
+## Pump.fun radar
+
+The Pump.fun connector reads the platform's public Explore page, follows the public coin metadata for the leading listings, and then uses the configured X API key to measure exact recent-post windows for a limited number of those coins. It labels creator-provided X and website links as unverified metadata. A stronger source label appears only when the narrative matches independent Front Run news/trend evidence.
+
+The Pump attention score combines the platform's displayed position, X discussion, external-source availability, and independent narrative crossover. It does not measure token safety, liquidity quality, holder concentration, or expected return.
 
 ## Local development
 
@@ -97,7 +106,7 @@ Keep the query and post limits conservative until you understand your provider b
 
 1. Connectors emit normalized observations with source-native metrics and timestamps.
 2. Related titles are clustered using token overlap.
-3. The base viral score combines relative strength, freshness, source diversity, and saturation.
+3. The base viral score combines relative strength, freshness, source diversity, and saturation. Source priority is X first, direct publishers/news second, and Google Trends as the lowest-weight early-search hint.
 4. Postgres snapshots supply observed velocity for all five time windows.
 5. Stored velocity adjusts lifecycle phase and confidence.
 6. If OpenAI is configured, structured output improves the written classification and forecast. Deterministic heuristics remain the fallback.

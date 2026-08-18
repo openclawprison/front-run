@@ -9,6 +9,23 @@ const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail
 const techTitle = "Apple reveals pocket AI robot for the home";
 const observedXQueries: string[] = [];
 
+function flightFrame(id: string, props: Record<string, unknown>) {
+  const chunk = `${id}:${JSON.stringify(["$", "$Ltest", null, props])}`;
+  return `<script>self.__next_f.push(${JSON.stringify([1, chunk])})</script>`;
+}
+
+const pumpCoin = {
+  mint: "Ge87EtsjwRQbHaqQmKRno69RFTwh9bfSsm99XNxTpump",
+  name: "Jimothy The Raccoon",
+  symbol: "Jimothy",
+  description: "The internet raccoon story",
+  twitter: "https://x.com/jimothy/status/999",
+  website: "https://example.com/jimothy",
+  usd_market_cap: 6_500_000,
+  created_timestamp: now.getTime() - 2 * 24 * 60 * 60_000,
+};
+const pumpHtml = `<!doctype html>${flightFrame("64", { runners: [{ coin: pumpCoin, description: "The Internet Isn't Done With Jimothy Yet" }] })}${flightFrame("ee", { initialSearchParams: {}, initialCoins: [pumpCoin] })}`;
+
 function rss(items: Array<{ title: string; link: string; source: string; traffic?: string }>) {
   return `<?xml version="1.0"?><rss><channel>${items.map((item) => `<item><title>${item.title} - ${item.source}</title><link>${item.link}</link><pubDate>${published}</pubDate><ht:approx_traffic>${item.traffic ?? "500+"}</ht:approx_traffic><ht:news_item_title>${item.title}</ht:news_item_title><ht:news_item_url>${item.link}</ht:news_item_url><ht:news_item_source>${item.source}</ht:news_item_source></item>`).join("")}</channel></rss>`;
 }
@@ -21,6 +38,9 @@ const feed = rss([
 process.env.X_BEARER_TOKEN = "test-token";
 process.env.X_COUNT_ENRICH_LIMIT = "4";
 process.env.X_POSTS_PER_TREND = "10";
+process.env.PUMPFUN_LIMIT = "4";
+process.env.PUMPFUN_ENRICH_LIMIT = "1";
+process.env.PUMPFUN_X_ENRICH_LIMIT = "1";
 delete process.env.OPENAI_API_KEY;
 delete process.env.YOUTUBE_API_KEY;
 delete process.env.BRIGHTDATA_API_TOKEN;
@@ -29,6 +49,9 @@ globalThis.fetch = (async (input: string | URL | Request) => {
   const url = String(input);
   if (url.includes("trends.google.com/trending/rss")) return new Response(feed, { status: 200 });
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
+  if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org/.test(url)) return new Response(feed, { status: 200 });
+  if (url === "https://pump.fun/explore") return new Response(pumpHtml, { status: 200, headers: { "content-type": "text/html" } });
+  if (url.includes("frontend-api-v3.pump.fun/coins/")) return Response.json(pumpCoin);
   if (url.endsWith("topstories.json")) return Response.json([]);
   if (url.includes("/trends/by/woeid/")) return Response.json({ data: [] });
   if (url.includes("/tweets/counts/recent")) {
@@ -36,7 +59,12 @@ globalThis.fetch = (async (input: string | URL | Request) => {
     return Response.json({ data: [{ start, end, tweet_count: 240 }] });
   }
   if (url.includes("/tweets/search/recent")) {
-    observedXQueries.push(new URL(url).searchParams.get("query") ?? "");
+    const query = new URL(url).searchParams.get("query") ?? "";
+    observedXQueries.push(query);
+    if (query.includes("Jimothy")) return Response.json({
+      data: [{ id: "987654321", text: "Jimothy the raccoon is taking over timelines.", author_id: "77", created_at: end, public_metrics: { like_count: 900, retweet_count: 120, reply_count: 30, quote_count: 25 } }],
+      includes: { users: [{ id: "77", username: "meme_reporter", name: "Meme Reporter" }] },
+    });
     return Response.json({
       data: [{ id: "1234567890", text: "This brown bear trail encounter is everywhere today.", author_id: "42", created_at: end, public_metrics: { like_count: 4200, retweet_count: 680, reply_count: 95, quote_count: 120 } }],
       includes: { users: [{ id: "42", username: "wildlife_reporter", name: "Wildlife Reporter", verified: true }] },
@@ -61,6 +89,12 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
   assert.ok(animal.evidence.some((item) => item.url === "https://news.example/bear"));
   assert.ok(observedXQueries.length >= 2);
-  assert.ok(observedXQueries.every((query) => query.includes("bear") && !query.includes("runner was the person")));
+  const newsQueries = observedXQueries.filter((query) => !query.includes("Jimothy"));
+  assert.ok(newsQueries.every((query) => query.includes("bear") && !query.includes("runner was the person")));
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /top-post links/);
+  assert.equal(payload.pumpCoins[0]?.name, "Jimothy The Raccoon");
+  assert.equal(payload.pumpCoins[0]?.bucket, "Trending now");
+  assert.equal(payload.pumpCoins[0]?.xPosts?.["24h"], 240);
+  assert.ok(payload.pumpCoins[0]?.evidence.some((item) => item.url === "https://x.com/meme_reporter/status/987654321"));
+  assert.equal(payload.sources.find((source) => source.key === "pumpfun")?.state, "live");
 });

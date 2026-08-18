@@ -16,6 +16,8 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(page, /FRONT RUN/);
   assert.match(page, /Platform counts/);
   assert.match(page, /News coverage and leading posts/);
+  assert.match(page, /Pump\.fun attention radar/);
+  assert.match(page, /Not an endorsement/);
   assert.match(page, /TREND_TAXONOMY/);
   assert.doesNotMatch(page, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
@@ -25,6 +27,9 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /api\.x\.com\/2\/tweets\/search\/recent/);
   assert.match(engine, /Animal watch/);
   assert.match(engine, /Technology watch/);
+  assert.match(engine, /National Wildlife Federation/);
+  assert.match(engine, /frontend-api-v3\.pump\.fun/);
+  assert.match(engine, /sourcePriorityWeight/);
   assert.match(engine, /shortTrendTitle/);
   assert.match(engine, /top-post links/);
   assert.match(engine, /23424977/);
@@ -33,6 +38,7 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(blueprint, /healthCheckPath: \/api\/health/);
   assert.match(blueprint, /schedule: "\*\/5 \* \* \* \*"/);
   assert.match(blueprint, /X_POSTS_PER_TREND/);
+  assert.match(blueprint, /PUMPFUN_X_ENRICH_LIMIT/);
 });
 
 test("includes Render, storage, environment, and preview assets", async () => {

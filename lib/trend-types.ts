@@ -75,6 +75,29 @@ export type NewsItem = {
   trendId?: string;
 };
 
+export type PumpCoinBucket = "Trending now" | "Movers";
+
+export type PumpCoin = {
+  mint: string;
+  name: string;
+  symbol: string;
+  url: string;
+  imageUrl?: string;
+  description: string;
+  bucket: PumpCoinBucket;
+  rank: number;
+  marketCapUsd: number;
+  createdAt?: string;
+  score: WindowValues;
+  xPosts?: WindowValues;
+  summary: string;
+  sourceLabel: string;
+  sourceUrl: string;
+  relatedTrendId?: string;
+  relatedTrendTitle?: string;
+  evidence: TrendEvidence[];
+};
+
 export type TrendCategorySummary = {
   name: string;
   count: number;
@@ -90,5 +113,6 @@ export type TrendsPayload = {
   trends: Trend[];
   categories: TrendCategorySummary[];
   news: NewsItem[];
+  pumpCoins: PumpCoin[];
   sources: SourceStatus[];
 };

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDot,
   Clock3,
+  Coins,
   Cpu,
   ExternalLink,
   Flame,
@@ -28,7 +29,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TREND_TAXONOMY } from "../lib/trend-types";
-import type { Phase, TimeWindow, Trend, TrendsPayload } from "../lib/trend-types";
+import type { Phase, PumpCoin, TimeWindow, Trend, TrendsPayload } from "../lib/trend-types";
 
 const timeWindows: { key: TimeWindow; label: string }[] = [
   { key: "5m", label: "5 min" },
@@ -55,6 +56,14 @@ const platformActivityLabel = (trend: Trend, window: TimeWindow) => {
   const values = Object.entries(trend.platforms ?? {});
   if (!values.length) return formatNumber(trend.mentions[window]);
   return values.map(([key, metric]) => `${key === "x" ? "X" : "TT"} ${formatNumber(metric.windows[window])}${metric.scope === "sample" ? "*" : ""}`).join(" / ");
+};
+
+const coinAge = (coin: PumpCoin, now: number) => {
+  if (!coin.createdAt) return "Age unavailable";
+  const minutes = Math.max(0, Math.floor((now - new Date(coin.createdAt).getTime()) / 60_000));
+  if (minutes < 60) return `${Math.max(1, minutes)}m old`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h old`;
+  return `${Math.floor(minutes / 1440)}d old`;
 };
 
 function SparkBars({ values, phase, large = false }: { values: number[]; phase: Phase; large?: boolean }) {
@@ -151,6 +160,7 @@ export default function Home() {
   }, [activeWindow, acceleratingOnly, category, query, subcategory, trends]);
 
   const headlineTrends = visibleTrends.slice(0, 3);
+  const pumpCoins = useMemo(() => [...(payload?.pumpCoins ?? [])].sort((a, b) => b.score[activeWindow] - a.score[activeWindow]), [activeWindow, payload?.pumpCoins]);
   const categoryLabel = subcategory ?? category;
   const ignitingCount = visibleTrends.filter((trend) => trend.phase === "Igniting").length;
   const acceleratingCount = visibleTrends.filter((trend) => trend.phase === "Accelerating").length;
@@ -320,6 +330,27 @@ export default function Home() {
               </section>
             </aside>
           </div>
+
+          <section className="pump-radar" id="pump-radar">
+            <div className="pump-radar-head">
+              <div><span className="section-kicker"><Coins size={13} /> Narrative crossover</span><h2>Pump.fun attention radar</h2><p>What Pump.fun is surfacing now, cross-checked against X and Front Run&apos;s independent news/trend evidence.</p></div>
+              <div className="pump-disclaimer"><span>Discovery signal</span><strong>Not an endorsement</strong></div>
+            </div>
+            {pumpCoins.length ? <div className="pump-grid">
+              {pumpCoins.map((coin) => (
+                <article className="pump-card" key={coin.mint}>
+                  <div className="pump-card-top"><span className={`pump-bucket ${coin.bucket === "Trending now" ? "is-featured" : ""}`}>{coin.bucket} · #{coin.rank}</span><ScoreRing value={coin.score[activeWindow]} compact /></div>
+                  <div className="pump-title-row"><div className="pump-coin-mark">{coin.name.slice(0, 2).toUpperCase()}</div><div><h3>{coin.name}</h3><span>${coin.symbol} · {coinAge(coin, clock)}</span></div></div>
+                  <p className="pump-description">{coin.description}</p>
+                  <div className="pump-metrics"><div><span>Market cap</span><strong>{coin.marketCapUsd ? `$${formatNumber(coin.marketCapUsd)}` : "—"}</strong></div><div><span>X posts · {activeWindow}</span><strong>{coin.xPosts ? formatNumber(coin.xPosts[activeWindow]) : "Not measured"}</strong></div><div><span>Attention</span><strong>{coin.score[activeWindow]}/100</strong></div></div>
+                  <div className="pump-source"><span>Likely source</span>{coin.relatedTrendId ? <button onClick={() => setSelectedTrend(trends.find((trend) => trend.id === coin.relatedTrendId) ?? null)}>{coin.sourceLabel}<ChevronRight size={13} /></button> : <a href={coin.sourceUrl} target="_blank" rel="noreferrer">{coin.sourceLabel}<ExternalLink size={12} /></a>}</div>
+                  <p className="pump-summary">{coin.summary}</p>
+                  <div className="pump-links">{coin.evidence.slice(0, 3).map((item) => <a key={`${coin.mint}-${item.url}`} href={item.url} target="_blank" rel="noreferrer" title={item.title}>{item.source}<ExternalLink size={11} /></a>)}</div>
+                  <a className="pump-open" href={coin.url} target="_blank" rel="noreferrer">Open on Pump.fun <ExternalLink size={13} /></a>
+                </article>
+              ))}
+            </div> : <div className="pump-empty"><LoaderCircle className={loading ? "spin" : ""} size={18} /><div><strong>Pump.fun radar is reconnecting</strong><span>The normal news and trend feed remains independent.</span></div></div>}
+          </section>
         </div>
 
         <div className="mobile-category-rail" aria-label="Mobile categories">{categories.map((item) => <button key={item.name} className={category === item.name ? "is-active" : ""} onClick={() => selectCategory(item.name)}>{item.name}</button>)}</div>

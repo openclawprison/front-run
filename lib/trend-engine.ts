@@ -1,7 +1,7 @@
 import type { HistoricalSnapshot } from "./trend-store";
 import { applyHistory } from "./trend-store";
 import { TREND_TAXONOMY } from "./trend-types";
-import type { NewsItem, Phase, PlatformMetric, SourceStatus, Trend, TrendEvidence, TrendsPayload, WindowValues } from "./trend-types";
+import type { NewsItem, Phase, PlatformMetric, PumpCoin, PumpCoinBucket, SourceStatus, Trend, TrendEvidence, TrendsPayload, WindowValues } from "./trend-types";
 
 type RuntimeEnv = {
   OPENAI_API_KEY?: string;
@@ -16,9 +16,12 @@ type RuntimeEnv = {
   TIKTOK_QUERY_LIMIT?: string;
   TIKTOK_POSTS_PER_QUERY?: string;
   TIKTOK_SEED_QUERIES?: string;
+  PUMPFUN_LIMIT?: string;
+  PUMPFUN_ENRICH_LIMIT?: string;
+  PUMPFUN_X_ENRICH_LIMIT?: string;
 };
 
-type SourceKey = "google" | "news" | "hackernews" | "x" | "youtube" | "tiktok";
+type SourceKey = "google" | "news" | "publisher" | "hackernews" | "x" | "youtube" | "tiktok";
 
 type Candidate = {
   id: string;
@@ -87,6 +90,18 @@ function rssItems(xml: string) {
   return xml.match(/<item>[\s\S]*?<\/item>/gi) ?? [];
 }
 
+function feedEntries(xml: string) {
+  const items = rssItems(xml);
+  return items.length ? items : xml.match(/<entry(?:\s[^>]*)?>[\s\S]*?<\/entry>/gi) ?? [];
+}
+
+function feedLink(entry: string) {
+  const elementText = tag(entry, "link");
+  if (elementText) return elementText;
+  const href = entry.match(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/i)?.[1] ?? "";
+  return decodeXml(href);
+}
+
 function numberFromTraffic(value: string) {
   const normalized = value.replace(/[+,\s]/g, "").toUpperCase();
   const multiplier = normalized.endsWith("M") ? 1_000_000 : normalized.endsWith("K") ? 1_000 : 1;
@@ -119,7 +134,7 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
           sourceLabel: "Google Trends",
           publishedAt,
           activity,
-          strength: clamp(42 + Math.log10(activity + 1) * 12 - index * 0.35, 30, 98),
+          strength: clamp(30 + Math.log10(activity + 1) * 7 - index * 0.35, 24, 62),
           detail: `${tag(entry, "ht:approx_traffic") || activity.toLocaleString()} searches · ${geo}`,
           geography: geo,
           relatedNews: relatedTitle ? { title: relatedTitle, url: articleUrl, source: relatedSource } : undefined,
@@ -243,10 +258,68 @@ function xCountQuery(trendName: string) {
   return `${words.join(" ") || normalize(cleaned)} lang:en -is:retweet`;
 }
 
-async function collectXWindowCounts(trendName: string): Promise<WindowValues> {
+async function collectPublisherNews(): Promise<CollectorResult> {
+  const feeds = [
+    { label: "NPR", url: "https://feeds.npr.org/1001/rss.xml", limit: 14, strength: 74 },
+    { label: "NPR Technology", url: "https://feeds.npr.org/1019/rss.xml", limit: 10, strength: 71 },
+    { label: "CBS News", url: "https://www.cbsnews.com/latest/rss/main", limit: 14, strength: 74 },
+    { label: "The New York Times", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", limit: 14, strength: 74 },
+    { label: "The Verge", url: "https://www.theverge.com/rss/index.xml", limit: 12, strength: 72 },
+    { label: "TechCrunch", url: "https://techcrunch.com/feed/", limit: 10, strength: 70 },
+    { label: "WIRED", url: "https://www.wired.com/feed/rss", limit: 10, strength: 70 },
+    { label: "Mongabay", url: "https://news.mongabay.com/feed/", limit: 14, strength: 72 },
+    { label: "Catster", url: "https://www.catster.com/feed/", limit: 10, strength: 69 },
+    { label: "Smithsonian Science & Nature", url: "https://www.smithsonianmag.com/rss/science-nature/", limit: 12, strength: 71 },
+    { label: "Audubon", url: "https://www.audubon.org/rss.xml", limit: 10, strength: 70 },
+    { label: "National Wildlife Federation", url: "https://blog.nwf.org/feed/", limit: 10, strength: 68 },
+  ];
+  const results = await Promise.allSettled(feeds.map((feed) => fetchText(feed.url, { headers: { Accept: "application/rss+xml,application/atom+xml,application/xml,text/xml" } }, 15_000)));
+  const seen = new Set<string>();
+  const items: Candidate[] = [];
+  results.forEach((result, feedIndex) => {
+    if (result.status !== "fulfilled") return;
+    const feed = feeds[feedIndex];
+    feedEntries(result.value).slice(0, feed.limit).forEach((entry, index) => {
+      const title = tag(entry, "title");
+      const key = normalize(title);
+      if (!isUsefulTitle(title) || seen.has(key)) return;
+      const publishedText = tag(entry, "pubDate") || tag(entry, "published") || tag(entry, "updated");
+      const publishedTime = new Date(publishedText || Date.now()).getTime();
+      if (!Number.isFinite(publishedTime)) return;
+      const ageHours = Math.max(0, (Date.now() - publishedTime) / 3_600_000);
+      if (ageHours > 96) return;
+      seen.add(key);
+      items.push({
+        id: `publisher-${slug(feed.label)}-${slug(title)}`,
+        title,
+        url: feedLink(entry) || feed.url,
+        source: "publisher",
+        sourceLabel: feed.label,
+        publishedAt: new Date(publishedTime).toISOString(),
+        activity: 1,
+        strength: clamp(feed.strength - index * 0.55 - Math.min(9, ageHours / 10), 42, feed.strength),
+        detail: `${feed.label} · direct publisher feed`,
+        geography: "US-led publishers",
+      });
+    });
+  });
+  const failed = results.filter((result) => result.status === "rejected").length;
+  return {
+    items,
+    status: {
+      key: "publisher",
+      label: "Direct publishers",
+      state: items.length ? "live" : "error",
+      detail: items.length ? `${feeds.length - failed}/${feeds.length} feeds live · includes five dedicated animal/wildlife sources` : "Direct publisher feeds did not respond",
+      itemCount: items.length,
+    },
+  };
+}
+
+async function collectXWindowCounts(trendName: string, query = xCountQuery(trendName)): Promise<WindowValues> {
   const now = Date.now();
   const params = new URLSearchParams({
-    query: xCountQuery(trendName),
+    query,
     granularity: "minute",
     start_time: new Date(now - 24 * 60 * 60_000).toISOString(),
     end_time: new Date(now - 15_000).toISOString(),
@@ -262,10 +335,10 @@ function xPostEngagement(post: XPost) {
   return Number(metrics?.like_count ?? 0) + Number(metrics?.retweet_count ?? 0) * 2 + Number(metrics?.quote_count ?? 0) * 2 + Number(metrics?.reply_count ?? 0);
 }
 
-async function collectXTopPosts(trendName: string): Promise<{ evidence: TrendEvidence[]; newest?: string; engagement: number }> {
+async function collectXTopPosts(trendName: string, query = xCountQuery(trendName)): Promise<{ evidence: TrendEvidence[]; newest?: string; engagement: number }> {
   const maxResults = clamp(Number(runtime.X_POSTS_PER_TREND ?? 10) || 10, 10, 25);
   const params = new URLSearchParams({
-    query: xCountQuery(trendName),
+    query,
     max_results: String(maxResults),
     sort_order: "relevancy",
     "tweet.fields": "created_at,public_metrics,author_id",
@@ -295,8 +368,8 @@ async function collectXTopPosts(trendName: string): Promise<{ evidence: TrendEvi
   };
 }
 
-async function collectXSignal(trendName: string) {
-  const [countsResult, postsResult] = await Promise.allSettled([collectXWindowCounts(trendName), collectXTopPosts(trendName)]);
+async function collectXSignal(trendName: string, query = xCountQuery(trendName)) {
+  const [countsResult, postsResult] = await Promise.allSettled([collectXWindowCounts(trendName, query), collectXTopPosts(trendName, query)]);
   if (countsResult.status === "rejected" && postsResult.status === "rejected") throw countsResult.reason;
   return {
     counts: countsResult.status === "fulfilled" ? countsResult.value : undefined,
@@ -304,10 +377,189 @@ async function collectXSignal(trendName: string) {
   };
 }
 
+type PumpApiCoin = {
+  mint?: string;
+  name?: string;
+  symbol?: string;
+  description?: string;
+  image_uri?: string;
+  twitter?: string;
+  website?: string;
+  created_timestamp?: number;
+  usd_market_cap?: number;
+  market_cap_usd?: number;
+  market_cap?: number;
+  is_banned?: boolean;
+  nsfw?: boolean;
+};
+
+type PumpSeed = PumpApiCoin & {
+  mint: string;
+  name: string;
+  symbol: string;
+  bucket: PumpCoinBucket;
+  rank: number;
+  featureDescription?: string;
+};
+
+type PumpCollectorResult = { coins: PumpSeed[]; status: SourceStatus };
+
+function flightProps<T>(html: string, property: string): T | undefined {
+  const scripts = html.matchAll(/<script>self\.__next_f\.push\(([\s\S]*?)\)<\/script>/g);
+  for (const match of scripts) {
+    try {
+      const frame = JSON.parse(match[1]) as unknown[];
+      const chunk = typeof frame[1] === "string" ? frame[1] : "";
+      if (!chunk.includes(`"${property}"`)) continue;
+      const separator = chunk.indexOf(":");
+      if (separator < 1) continue;
+      const component = JSON.parse(chunk.slice(separator + 1)) as unknown[];
+      const props = component[3] as Record<string, T> | undefined;
+      if (props?.[property] !== undefined) return props[property];
+    } catch {
+      // Flight responses contain many unrelated frames; only structured component frames are relevant here.
+    }
+  }
+  return undefined;
+}
+
+function safeExternalUrl(value?: string) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function collectPumpFun(): Promise<PumpCollectorResult> {
+  try {
+    const html = await fetchText("https://pump.fun/explore", { headers: { Accept: "text/html,application/xhtml+xml" } }, 18_000);
+    const runners = flightProps<Array<{ coin?: PumpApiCoin; description?: string }>>(html, "runners") ?? [];
+    const movers = flightProps<PumpApiCoin[]>(html, "initialCoins") ?? [];
+    const limit = clamp(Number(runtime.PUMPFUN_LIMIT ?? 12) || 12, 4, 20);
+    const seen = new Set<string>();
+    const seeds: PumpSeed[] = [];
+    const add = (coin: PumpApiCoin | undefined, bucket: PumpCoinBucket, rank: number, featureDescription?: string) => {
+      const mint = coin?.mint?.trim();
+      const name = coin?.name?.trim();
+      if (!mint || !name || coin?.is_banned || coin?.nsfw || seen.has(mint)) return;
+      seen.add(mint);
+      seeds.push({ ...coin, mint, name, symbol: coin?.symbol?.trim() || "—", bucket, rank, featureDescription });
+    };
+    runners.forEach((runner, index) => add(runner.coin, "Trending now", index + 1, runner.description));
+    movers.forEach((coin, index) => add(coin, "Movers", index + 1));
+    const selected = seeds.slice(0, limit);
+    const enrichLimit = clamp(Number(runtime.PUMPFUN_ENRICH_LIMIT ?? 10) || 10, 0, limit);
+    const enriched = await Promise.allSettled(selected.slice(0, enrichLimit).map((coin) => fetchJson<PumpApiCoin>(`https://frontend-api-v3.pump.fun/coins/${encodeURIComponent(coin.mint)}`, {
+      headers: { Origin: "https://pump.fun", Referer: "https://pump.fun/" },
+    })));
+    enriched.forEach((result, index) => {
+      if (result.status === "fulfilled") selected[index] = { ...selected[index], ...result.value, mint: selected[index].mint, name: result.value.name?.trim() || selected[index].name, symbol: result.value.symbol?.trim() || selected[index].symbol };
+    });
+    return {
+      coins: selected,
+      status: {
+        key: "pumpfun",
+        label: "Pump.fun",
+        state: selected.length ? "live" : "error",
+        detail: selected.length ? `${runners.length} featured coins and ${Math.max(0, selected.length - runners.length)} leading Movers read from the official Explore surface` : "The Explore page returned no readable coin data",
+        itemCount: selected.length,
+      },
+    };
+  } catch (error) {
+    return { coins: [], status: { key: "pumpfun", label: "Pump.fun", state: "error", detail: errorMessage(error), itemCount: 0 } };
+  }
+}
+
+function pumpXQuery(coin: PumpSeed) {
+  const name = coin.name.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  const symbol = coin.symbol.replace(/[^A-Za-z0-9_]/g, "").slice(0, 20);
+  const clauses = [`"${name}"`];
+  if (symbol.length >= 3 && normalize(symbol) !== normalize(name)) clauses.push(`$${symbol}`);
+  return `(${clauses.join(" OR ")}) lang:en -is:retweet`;
+}
+
+function pumpTrendMatch(coin: PumpSeed, trends: Trend[]) {
+  const generic = new Set(["coin", "official", "token", "pump", "pumpfun", "cat", "dog", "bear", "bull", "meme", "the"]);
+  const nameTokens = new Set(tokens(coin.name).filter((token) => !generic.has(token)));
+  const coinTokens = new Set(tokens(`${coin.name} ${coin.featureDescription ?? ""}`).filter((token) => !generic.has(token)));
+  let best: { trend: Trend; score: number } | undefined;
+  for (const trend of trends) {
+    const trendTokens = new Set(tokens(`${trend.title} ${trend.summary}`));
+    const shared = [...coinTokens].filter((token) => trendTokens.has(token));
+    const distinctiveSingle = shared.length === 1 && shared[0].length >= 6 && nameTokens.has(shared[0]);
+    if (shared.length < 2 && !distinctiveSingle) continue;
+    const score = shared.length / Math.max(1, Math.min(coinTokens.size, trendTokens.size)) + (trend.evidence.some((item) => /X/.test(item.source)) ? 0.08 : 0);
+    if (!best || score > best.score) best = { trend, score };
+  }
+  return best?.trend;
+}
+
+function pumpAttentionWindows(base: number, counts?: WindowValues): WindowValues {
+  return Object.fromEntries(Object.entries(windows(base)).map(([window, value]) => {
+    const count = counts?.[window as keyof WindowValues] ?? 0;
+    return [window, clamp(Math.round(value + Math.min(24, Math.log10(count + 1) * 7)), 10, 99)];
+  })) as WindowValues;
+}
+
+async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ coins: PumpCoin[]; xCoverage: number }> {
+  const xLimit = runtime.X_BEARER_TOKEN ? clamp(Number(runtime.PUMPFUN_X_ENRICH_LIMIT ?? 6) || 6, 0, Math.min(10, seeds.length)) : 0;
+  const xSignals = await Promise.allSettled(seeds.slice(0, xLimit).map((coin) => collectXSignal(coin.name, pumpXQuery(coin))));
+  let xCoverage = 0;
+  const coins = seeds.map((coin, index): PumpCoin => {
+    const signalResult = index < xSignals.length ? xSignals[index] : undefined;
+    const signal = signalResult?.status === "fulfilled" ? signalResult.value : undefined;
+    if (signal?.counts || signal?.posts?.evidence.length) xCoverage += 1;
+    const relatedTrend = pumpTrendMatch(coin, trends);
+    const pumpUrl = `https://pump.fun/coin/${coin.mint}`;
+    const twitter = safeExternalUrl(coin.twitter);
+    const website = safeExternalUrl(coin.website);
+    const metadataSource = twitter || website;
+    const metadataLabel = twitter ? "Creator-linked X source" : website ? `Creator-linked ${new URL(website).hostname.replace(/^www\./, "")}` : "Pump.fun listing only";
+    const marketCapUsd = Math.max(0, Number(coin.usd_market_cap ?? coin.market_cap_usd ?? coin.market_cap ?? 0) || 0);
+    const bucketBase = coin.bucket === "Trending now" ? 68 - (coin.rank - 1) * 4 : 48 - Math.min(18, (coin.rank - 1) * 1.4);
+    const base = clamp(Math.round(bucketBase + Math.min(12, Math.log10(marketCapUsd + 1) * 2) + (metadataSource ? 4 : 0) + (relatedTrend ? 9 : 0)), 20, 88);
+    const evidence: TrendEvidence[] = [{ source: "Pump.fun", title: `${coin.name} is #${coin.rank} in ${coin.bucket}`, url: pumpUrl, detail: marketCapUsd ? `$${Math.round(marketCapUsd).toLocaleString()} market cap shown at ingestion` : "Official coin page" }];
+    if (twitter) evidence.push({ source: "Coin metadata · X", title: "Source post attached to the coin listing", url: twitter, detail: "Creator-supplied link; not independently verified" });
+    if (website && website !== twitter) evidence.push({ source: "Coin metadata · Website", title: "Website attached to the coin listing", url: website, detail: "Creator-supplied link; not independently verified" });
+    evidence.push(...(signal?.posts?.evidence ?? []));
+    if (relatedTrend) evidence.push(...relatedTrend.evidence.slice(0, 2));
+    const uniqueEvidence = [...new Map(evidence.map((item) => [item.url, item])).values()].slice(0, 7);
+    const summary = relatedTrend
+      ? `This listing appears to reference “${relatedTrend.title},” which Front Run is also seeing in independent trend evidence. Pump rank and X discussion measure attention, not token quality.`
+      : metadataSource
+        ? `Pump.fun is surfacing ${coin.name}, and its listing points to ${metadataLabel.toLowerCase()}. No independent news/trend match is confirmed yet.`
+        : `Pump.fun is surfacing ${coin.name}, but the listing does not provide a confirmed external origin. Treat it as platform attention only.`;
+    return {
+      mint: coin.mint,
+      name: coin.name,
+      symbol: coin.symbol,
+      url: pumpUrl,
+      imageUrl: safeExternalUrl(coin.image_uri),
+      description: coin.featureDescription || coin.description?.trim() || "No creator description provided.",
+      bucket: coin.bucket,
+      rank: coin.rank,
+      marketCapUsd,
+      createdAt: coin.created_timestamp ? new Date(coin.created_timestamp).toISOString() : undefined,
+      score: pumpAttentionWindows(base, signal?.counts),
+      xPosts: signal?.counts,
+      summary,
+      sourceLabel: relatedTrend ? `Matched trend · ${relatedTrend.title}` : metadataLabel,
+      sourceUrl: relatedTrend ? relatedTrend.url : metadataSource || pumpUrl,
+      relatedTrendId: relatedTrend?.id,
+      relatedTrendTitle: relatedTrend?.title,
+      evidence: uniqueEvidence,
+    };
+  });
+  return { coins: coins.sort((a, b) => b.score["30m"] - a.score["30m"]), xCoverage };
+}
+
 function xCandidatePriority(item: Candidate) {
-  const [category] = categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "news" || Boolean(item.relatedNews));
+  const [category] = categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews));
   const categoryBoost = category === "Animals" ? 90 : category === "Technology" ? 75 : category === "Viral events" ? 55 : 25;
-  const sourceBoost = item.source === "google" ? 12 : item.source === "news" ? 8 : 0;
+  const sourceBoost = item.source === "publisher" ? 16 : item.source === "news" ? 10 : item.source === "google" ? 2 : 0;
   return categoryBoost + sourceBoost + item.strength;
 }
 
@@ -349,7 +601,7 @@ async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult>
   const storyLimit = Math.min(9, Math.max(1, totalLimit - 3));
   const storySeen = new Set<string>();
   const storySeeds = [...sourceCandidates]
-    .filter((item) => item.source === "news" || item.source === "google" || item.source === "hackernews")
+    .filter((item) => item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
     .sort((a, b) => xCandidatePriority(b) - xCandidatePriority(a))
     .filter((item) => {
       const key = normalize(shortTrendTitle(item.title));
@@ -668,17 +920,22 @@ function errorMessage(error: unknown) {
   return message.length > 110 ? `${message.slice(0, 107)}…` : message;
 }
 
+function sourcePriorityWeight(source: SourceKey) {
+  return ({ x: 1, publisher: 0.9, news: 0.82, tiktok: 0.8, youtube: 0.78, hackernews: 0.7, google: 0.55 } as Record<SourceKey, number>)[source];
+}
+
 function buildTrend(cluster: Candidate[]): Trend {
-  const leader = [...cluster].sort((a, b) => b.strength - a.strength)[0];
+  const leader = [...cluster].sort((a, b) => b.strength * sourcePriorityWeight(b.source) - a.strength * sourcePriorityWeight(a.source))[0];
   const classificationText = cluster.map((item) => `${item.title} ${item.relatedNews?.title ?? ""}`).join(" ");
-  const [category, subcategory] = categoryFor(classificationText, cluster.some((item) => item.source === "news" || Boolean(item.relatedNews)));
+  const [category, subcategory] = categoryFor(classificationText, cluster.some((item) => item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews)));
   const firstDate = cluster.reduce((earliest, item) => new Date(item.publishedAt).getTime() < new Date(earliest).getTime() ? item.publishedAt : earliest, leader.publishedAt);
   const ageMinutes = Math.max(1, (Date.now() - new Date(firstDate).getTime()) / 60_000);
   const activity = Math.round(cluster.reduce((sum, item) => sum + item.activity, 0));
-  const diversity = new Set(cluster.map((item) => item.source)).size;
-  const usObservationCount = cluster.filter((item) => item.geography === "US").length;
+  const diversity = new Set(cluster.map((item) => item.source === "publisher" || item.source === "news" ? `${item.source}:${item.sourceLabel}` : item.source)).size;
+  const usObservationCount = cluster.filter((item) => item.geography.startsWith("US")).length;
   const marketAdjustment = usObservationCount > 0 ? Math.min(10, 6 + usObservationCount * 2) : -10;
-  const baseScore = clamp(Math.round(leader.strength * 0.72 + Math.min(18, diversity * 5) + Math.min(10, cluster.length * 1.5) + marketAdjustment), 18, 99);
+  const leaderStrength = leader.strength * sourcePriorityWeight(leader.source);
+  const baseScore = clamp(Math.round(leaderStrength * 0.72 + Math.min(18, diversity * 5) + Math.min(10, cluster.length * 1.5) + marketAdjustment), 18, 99);
   const saturation = clamp(Math.round(ageMinutes / 30 + cluster.length * 4 + Math.max(0, baseScore - 75)), 6, 96);
   let phase: Phase = ageMinutes < 150 && saturation < 42 ? "Igniting" : ageMinutes < 720 && saturation < 68 ? "Accelerating" : saturation > 82 || ageMinutes > 1440 ? "Cooling" : "Peaking";
   if (baseScore < 45 && ageMinutes > 480) phase = "Cooling";
@@ -691,7 +948,7 @@ function buildTrend(cluster: Candidate[]): Trend {
         ? "The first attention peak is close. A verified update or reusable format is the clearest path to a second wave."
         : "The signal is losing freshness. Residual reposts are more likely than a new creator wave.";
   const weights = new Map<string, number>();
-  for (const item of cluster) weights.set(item.source, (weights.get(item.source) ?? 0) + item.strength);
+  for (const item of cluster) weights.set(item.source, (weights.get(item.source) ?? 0) + item.strength * sourcePriorityWeight(item.source));
   const weightTotal = [...weights.values()].reduce((sum, value) => sum + value, 0) || 1;
   const sources = Object.fromEntries([...weights.entries()].map(([key, value]) => [key, Math.max(1, Math.round(value / weightTotal * 100))]));
   const platforms: Record<string, PlatformMetric> = {};
@@ -837,7 +1094,10 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
 }
 
 export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map()): Promise<TrendsPayload> {
-  const publicCollectors = await Promise.all([collectGoogleTrends(), collectGoogleNews(), collectHackerNews(), collectYouTube()]);
+  const [publicCollectors, pumpCollector] = await Promise.all([
+    Promise.all([collectGoogleTrends(), collectGoogleNews(), collectPublisherNews(), collectHackerNews(), collectYouTube()]),
+    collectPumpFun(),
+  ]);
   const x = await collectX(publicCollectors.flatMap((collector) => collector.items));
   const coreCollectors = [...publicCollectors, x];
   const tiktok = await collectTikTok(coreCollectors.flatMap((collector) => collector.items));
@@ -847,6 +1107,7 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
   const model = await enrichWithOpenAI(clustered);
   const now = Date.now();
   const trends = model.trends.map((trend) => applyHistory(trend, history.get(trend.id) ?? [], now)).sort((a, b) => b.score["30m"] - a.score["30m"]);
+  const pump = await enrichPumpCoins(pumpCollector.coins, trends);
   const categories = TREND_TAXONOMY.map((category) => ({
     name: category.name,
     count: trends.filter((trend) => trend.category === category.name).length,
@@ -856,6 +1117,7 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
     })),
   }));
   const newsCollector = collectors.find((collector) => collector.status.key === "news");
+  const publisherCollector = collectors.find((collector) => collector.status.key === "publisher");
   const googleCandidates = collectors.find((collector) => collector.status.key === "google")?.items ?? [];
   const embeddedNews: NewsItem[] = googleCandidates
     .filter((item) => item.relatedNews)
@@ -867,12 +1129,23 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
       url: item.relatedNews!.url,
       trendId: trends.find((trend) => similar(trend.title, item.title))?.id,
     }));
-  const news: NewsItem[] = newsCollector?.items.length
-    ? newsCollector.items.slice(0, 8).map((item) => ({ title: item.title, source: item.sourceLabel, age: ageLabel(item.publishedAt).replace(" ago", ""), url: item.url, trendId: trends.find((trend) => similar(trend.title, item.title))?.id }))
+  const publisherNews = [...(publisherCollector?.items ?? []), ...(newsCollector?.items ?? [])]
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+  const newsSeen = new Set<string>();
+  const news: NewsItem[] = publisherNews.length
+    ? publisherNews.filter((item) => {
+        const key = normalize(item.title);
+        if (newsSeen.has(key)) return false;
+        newsSeen.add(key);
+        return true;
+      }).slice(0, 10).map((item) => ({ title: item.title, source: item.sourceLabel, age: ageLabel(item.publishedAt).replace(" ago", ""), url: item.url, trendId: trends.find((trend) => similar(trend.title, item.title))?.id }))
     : embeddedNews;
   const sourceStatuses = collectors.map((collector) => {
     if (collector.status.key === "news" && collector.status.state === "error" && embeddedNews.length) {
       return { key: "news", label: "Trend-linked news", state: "live", detail: `Google News unavailable; using ${embeddedNews.length} publisher stories embedded in Google Trends`, itemCount: embeddedNews.length } as SourceStatus;
+    }
+    if (collector.status.key === "x" && pump.xCoverage) {
+      return { ...collector.status, detail: `${collector.status.detail} · Pump.fun cross-checks for ${pump.xCoverage} coins` };
     }
     return collector.status;
   });
@@ -886,6 +1159,7 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
     trends,
     categories,
     news,
-    sources: [...sourceStatuses, model.status],
+    pumpCoins: pump.coins,
+    sources: [...sourceStatuses, pumpCollector.status, model.status],
   };
 }

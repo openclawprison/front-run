@@ -24,6 +24,12 @@ services:
         value: "12"
       - key: X_POSTS_PER_TREND
         value: "10"
+      - key: PUMPFUN_LIMIT
+        value: "12"
+      - key: PUMPFUN_ENRICH_LIMIT
+        value: "10"
+      - key: PUMPFUN_X_ENRICH_LIMIT
+        value: "6"
       - key: YOUTUBE_API_KEY
         sync: false
       - key: YOUTUBE_REGIONS
