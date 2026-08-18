@@ -7,6 +7,7 @@ const end = new Date(now.getTime() - 30_000).toISOString();
 const start = new Date(now.getTime() - 90_000).toISOString();
 const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail";
 const techTitle = "Apple reveals pocket AI robot for the home";
+const observedXQueries: string[] = [];
 
 function rss(items: Array<{ title: string; link: string; source: string; traffic?: string }>) {
   return `<?xml version="1.0"?><rss><channel>${items.map((item) => `<item><title>${item.title} - ${item.source}</title><link>${item.link}</link><pubDate>${published}</pubDate><ht:approx_traffic>${item.traffic ?? "500+"}</ht:approx_traffic><ht:news_item_title>${item.title}</ht:news_item_title><ht:news_item_url>${item.link}</ht:news_item_url><ht:news_item_source>${item.source}</ht:news_item_source></item>`).join("")}</channel></rss>`;
@@ -30,8 +31,12 @@ globalThis.fetch = (async (input: string | URL | Request) => {
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
   if (url.endsWith("topstories.json")) return Response.json([]);
   if (url.includes("/trends/by/woeid/")) return Response.json({ data: [] });
-  if (url.includes("/tweets/counts/recent")) return Response.json({ data: [{ start, end, tweet_count: 240 }] });
+  if (url.includes("/tweets/counts/recent")) {
+    observedXQueries.push(new URL(url).searchParams.get("query") ?? "");
+    return Response.json({ data: [{ start, end, tweet_count: 240 }] });
+  }
   if (url.includes("/tweets/search/recent")) {
+    observedXQueries.push(new URL(url).searchParams.get("query") ?? "");
     return Response.json({
       data: [{ id: "1234567890", text: "This brown bear trail encounter is everywhere today.", author_id: "42", created_at: end, public_metrics: { like_count: 4200, retweet_count: 680, reply_count: 95, quote_count: 120 } }],
       includes: { users: [{ id: "42", username: "wildlife_reporter", name: "Wildlife Reporter", verified: true }] },
@@ -55,5 +60,7 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.equal(animal.platforms.x.windows["24h"], 240);
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
   assert.ok(animal.evidence.some((item) => item.url === "https://news.example/bear"));
+  assert.ok(observedXQueries.length >= 2);
+  assert.ok(observedXQueries.every((query) => query.includes("bear") && !query.includes("runner was the person")));
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /top-post links/);
 });

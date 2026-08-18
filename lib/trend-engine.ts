@@ -233,11 +233,13 @@ function xCountQuery(trendName: string) {
   const cleaned = trendName.replace(/["\\]/g, " ").trim();
   if (cleaned.startsWith("#") && !cleaned.includes(" ")) return `${cleaned} lang:en -is:retweet`;
   const topicTerms = new Set(["ai", "airpods", "animal", "bear", "bird", "cat", "cybersecurity", "dog", "dolphin", "iphone", "kitten", "moon", "openai", "pet", "puppy", "robot", "rocket", "shark", "spacex", "starship", "tiktok", "viral", "whale", "wildlife"]);
+  const genericCapitalized = new Set(["after", "analysis", "breaking", "enter", "exclusive", "how", "latest", "meet", "new", "the", "this", "time", "to", "update", "video", "watch", "what", "when", "where", "who", "why", "with", "your"]);
+  const allCapsTerms = cleaned.match(/\b[A-Z]{2,}[A-Z0-9]*\b/g)?.map((word) => normalize(word)).filter(Boolean) ?? [];
   const capitalized = cleaned.match(/\b[A-Z][A-Za-z0-9’'-]+\b/g) ?? [];
-  const capitalizedTerms = capitalized.filter((word, index) => index > 0 || word.length > 3).map((word) => normalize(word)).filter(Boolean);
+  const capitalizedTerms = capitalized.map((word) => normalize(word)).filter((word) => word && !genericCapitalized.has(word));
   const domainTerms = tokens(cleaned).filter((word) => topicTerms.has(word));
   const allTerms = tokens(cleaned);
-  const words = [...new Set([...capitalizedTerms, ...domainTerms, ...allTerms])].slice(0, 5);
+  const words = [...new Set([...domainTerms, ...allCapsTerms, ...capitalizedTerms, ...allTerms])].slice(0, 5);
   return `${words.join(" ") || normalize(cleaned)} lang:en -is:retweet`;
 }
 
