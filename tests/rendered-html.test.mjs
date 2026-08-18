@@ -5,13 +5,15 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("ships the Front Run live dashboard and real source adapters", async () => {
-  const [page, dashboard, layout, route, engine, blueprint] = await Promise.all([
+  const [page, dashboard, layout, route, engine, blueprint, packageJson, cronScript] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/dashboard.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("app/api/trends/route.ts", root), "utf8"),
     readFile(new URL("lib/trend-engine.ts", root), "utf8"),
     readFile(new URL("render.yaml", root), "utf8"),
+    readFile(new URL("package.json", root), "utf8"),
+    readFile(new URL("scripts/trigger-ingest.ts", root), "utf8"),
   ]);
 
   assert.match(page, /readLatestStoredTrends/);
@@ -56,6 +58,11 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(blueprint, /TWITTERAPI_IO_KEY/);
   assert.match(blueprint, /TWITTERAPI_MONTHLY_BUDGET_USD/);
   assert.match(blueprint, /TWITTERAPI_SAMPLE_INTERVAL_MINUTES/);
+  assert.match(blueprint, /type: cron[\s\S]*DATABASE_URL[\s\S]*fromDatabase/);
+  assert.match(blueprint, /type: cron[\s\S]*TWITTERAPI_IO_KEY[\s\S]*OPENAI_API_KEY/);
+  assert.match(packageJson, /tsx scripts\/trigger-ingest\.ts/);
+  assert.match(cronScript, /readOrRefreshTrends/);
+  assert.match(cronScript, /if \(process\.env\.DATABASE_URL\) await ingestDirectly/);
 });
 
 test("includes Render, storage, environment, and preview assets", async () => {

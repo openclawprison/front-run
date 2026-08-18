@@ -27,7 +27,7 @@ TikTok and X values are explicitly marked as samples because keyword discovery d
 
 - Next.js Node web service
 - Render Postgres for cached payloads and rolling trend snapshots
-- Render Cron Job that calls the protected ingestion endpoint every five minutes
+- Render Cron Job that runs ingestion directly against Postgres every five minutes, with a retrying protected-HTTP fallback
 - `render.yaml` Blueprint for the web service, database, health check, secret wiring, and cron schedule
 
 The public dashboard server-renders the latest stored payload, so trends remain visible during reloads and while the next collection is running. The client checks for an updated payload every five minutes. Collection is single-flight inside each server instance, and manual refreshes have a one-minute floor to prevent API-cost abuse.
