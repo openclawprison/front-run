@@ -8,6 +8,7 @@ const start = new Date(now.getTime() - 90_000).toISOString();
 const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail";
 const techTitle = "Apple reveals pocket AI robot for the home";
 const sportTitle = "Chicago Cubs star Pete Crow-Armstrong hits two home runs";
+const officialTitle = "Bird defends state decision to submit voter data to feds";
 const observedXQueries: string[] = [];
 
 function flightFrame(id: string, props: Record<string, unknown>) {
@@ -35,6 +36,7 @@ const feed = rss([
   { title: animalTitle, link: "https://news.example/bear", source: "Wildlife Daily", traffic: "5K+" },
   { title: techTitle, link: "https://news.example/robot", source: "Tech Daily", traffic: "2K+" },
   { title: sportTitle, link: "https://news.example/baseball", source: "Sports Daily", traffic: "4K+" },
+  { title: officialTitle, link: "https://news.example/government", source: "State News", traffic: "3K+" },
 ]);
 
 process.env.X_BEARER_TOKEN = "test-token";
@@ -82,11 +84,14 @@ test("discovers category-specific news and enriches a story with X counts and le
   const animal = payload.trends.find((trend) => trend.category === "Animals");
   const technology = payload.trends.find((trend) => trend.category === "Technology");
   const baseball = payload.trends.find((trend) => trend.title.includes("Crow-Armstrong"));
+  const government = payload.trends.find((trend) => trend.title.includes("Bird defends"));
 
   assert.ok(animal, "expected an animal trend");
   assert.ok(technology, "expected a technology trend");
   assert.ok(baseball, "expected the Pete Crow-Armstrong story");
+  assert.ok(government, "expected the government official story");
   assert.equal(baseball.category, "Sports");
+  assert.equal(government.category, "News");
   assert.equal(animal.title, "Brown Bear Trail Attack");
   assert.ok(payload.trends.every((trend) => trend.title.length <= 42 && trend.title.split(/\s+/).length <= 5));
   assert.ok(animal.summary.length > 20);

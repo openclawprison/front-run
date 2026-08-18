@@ -862,6 +862,16 @@ function shortTrendTitle(input: string) {
   if (/\bblack bear\b/i.test(title) && /\bencounter\b/i.test(title)) return compactTrendTitle("Black Bear Encounter");
   if (/\brescued? beluga whales?\b/i.test(title)) return compactTrendTitle("Rescued Beluga Whales");
   if (/\brescued? sea turtle\b/i.test(title)) return compactTrendTitle("Rescued Sea Turtle");
+  if (/^Meet\s+Rhossi\b/i.test(title) && /\bsea turtle\b/i.test(title)) return compactTrendTitle("Rhossi the Sea Turtle");
+  if (/\bcat sanctuary\b/i.test(title) && /\bteam up\b/i.test(title)) return compactTrendTitle("Cat Rescue Team-Up");
+  const fireDogRescue = title.match(/\bdog rescue by\s+(.+?)(?:\s*$|[.!?])/i);
+  if (fireDogRescue) return compactTrendTitle(`${fireDogRescue[1]} Rescues Dog`);
+  if (/\bEugene-Springfield\b/i.test(title) && /\bcat colonies\b/i.test(title)) return compactTrendTitle("Eugene Cat Colonies");
+  if (/\bdog-bite death\b/i.test(title) && /\bWakefield\b/i.test(title)) return compactTrendTitle("Wakefield Dog-Bite Death");
+  const pandaVote = title.match(/^([A-Z][\w'-]+)\b.*\bvote to name baby panda\b/i);
+  if (pandaVote) return compactTrendTitle(`${pandaVote[1]}’s Baby Panda`);
+  if (/\bKagu bird dancing\b/i.test(title) && /\bSan Diego\b/i.test(title)) return compactTrendTitle("San Diego’s Dancing Kagu");
+  if (/\b5,?000 little penguins\b/i.test(title) && /\b(?:vaxxed|vaccinated)\b/i.test(title)) return compactTrendTitle("5,000 Penguins Get Vaccinated");
   const bearAttack = title.match(/\bmauled by (?:a |an )?((?:black|brown|polar|grizzly) bear)\b/i);
   if (bearAttack) return compactTrendTitle(`${bearAttack[1].replace(/\b\w/g, (letter) => letter.toUpperCase())} ${/trail/i.test(title) ? "Trail " : ""}Attack`);
   const zooAnimals = title.match(/\b(?:at )?(?:a )?([A-Z][\w'-]+) zoo\b.*\banimals?\b/i);
@@ -908,6 +918,9 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
   if (match(["cricket", "ipl", "wicket"])) return ["Sports", "Cricket"];
   if (match(["basketball", "nba", "wnba", "ncaa", "lakers", "celtics", "warriors", "knicks", "bulls", "nets"])) return ["Sports", "Basketball"];
   if (match(["hockey", "nhl", "tennis", "golf", "ufc", "boxing", "nascar", "formula 1", "f1"])) return ["Sports", "Other"];
+  const politicalContext = match(["government", "voter", "voters", "election", "congress", "senate", "governor", "state decision", "feds", "federal"]);
+  const explicitBirdContext = match(["birds", "bird flu", "avian", "wildlife", "zoo", "nest", "wing", "wings", "feather", "feathers", "flock", "penguin", "eagle", "owl", "parrot", "duck", "goose", "falcon", "kagu"]);
+  if (wordSet.has("bird") && politicalContext && !explicitBirdContext) return ["News", "World"];
   if (match(["bear", "bears", "polar bear", "panda", "grizzly"])) return ["Animals", "Bears"];
   if (match(["whale", "shark", "dolphin", "octopus", "ocean", "seal", "orca", "sea turtle", "manatee", "aquarium"])) return ["Animals", "Marine"];
   if (match(["bird", "birds", "crow", "eagle", "owl", "parrot", "penguin", "duck", "goose", "falcon"])) return ["Animals", "Birds"];
