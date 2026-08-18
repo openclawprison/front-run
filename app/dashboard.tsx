@@ -14,6 +14,7 @@ import {
   Gauge,
   Globe2,
   LayoutGrid,
+  Laugh,
   LoaderCircle,
   Newspaper,
   PawPrint,
@@ -39,7 +40,7 @@ const timeWindows: { key: TimeWindow; label: string }[] = [
   { key: "24h", label: "24 hours" },
 ];
 
-const categoryIcons = { Animals: PawPrint, Technology: Cpu, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
+const categoryIcons = { Memes: Laugh, Animals: PawPrint, Technology: Cpu, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
 const categories = [
   { name: "All trends", icon: LayoutGrid, subs: [] as string[] },
   ...TREND_TAXONOMY.map((category) => ({ name: category.name, icon: categoryIcons[category.name], subs: [...category.subcategories] })),
@@ -372,7 +373,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
               <section className="drawer-section"><span className="drawer-label">Summary</span><p className="analyst-copy">{selectedTrend.summary}</p><div className="signal-reasons">{selectedTrend.signals.map((signal) => <div key={signal}><Zap size={14} /><span>{signal}</span></div>)}</div></section>
               <section className="drawer-section">
                 <div className="drawer-section-head"><div><span>Source mix</span><h3>Where the signal lives</h3></div><small>{formatNumber(selectedTrend.mentions[activeWindow])} observed activity</small></div>
-                <div className="source-bars">{Object.entries(selectedTrend.sources).map(([source, value]) => <div key={source}><div><span>{source === "x" ? "X" : source === "hackernews" ? "Hacker News" : source.charAt(0).toUpperCase() + source.slice(1)}</span><strong>{value}%</strong></div><div className="source-track"><span style={{ width: `${value}%` }} /></div></div>)}</div>
+                <div className="source-bars">{Object.entries(selectedTrend.sources).map(([source, value]) => <div key={source}><div><span>{source === "x" ? "X" : source === "kym" ? "Know Your Meme" : source === "hackernews" ? "Hacker News" : source.charAt(0).toUpperCase() + source.slice(1)}</span><strong>{value}%</strong></div><div className="source-track"><span style={{ width: `${value}%` }} /></div></div>)}</div>
               </section>
               {Object.keys(selectedTrend.platforms ?? {}).length > 0 && <section className="drawer-section">
                 <div className="drawer-section-head"><div><span>Platform counts</span><h3>Posts by time window</h3></div><small>Exact where the platform permits it</small></div>

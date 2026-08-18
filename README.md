@@ -4,7 +4,7 @@ Front Run is a live early-signal dashboard for finding internet trends before th
 
 Front Run's main ranking tracks internet trends. A separate Pump.fun attention radar shows what that platform is surfacing and attempts to trace each listing back to X, news, or an existing Front Run narrative. Coin activity is never mixed into the main trend score and is not a recommendation to buy.
 
-Each ingestion keeps up to 75 ranked signals, reserving roughly 25 places for Animals and balancing those across cats, dogs, bears, birds, marine life, wildlife, and zoo stories.
+Each ingestion keeps up to 75 ranked signals, reserving roughly 25 places for Animals, 15 for Memes, and 12 for Technology. Animal coverage is balanced across cats, dogs, bears, birds, marine life, wildlife, and zoo stories.
 
 ## What is real data
 
@@ -12,6 +12,7 @@ Front Run never invents platform counts. Each connector reports its own metric a
 
 - Google Trends RSS: breakout searches and approximate search traffic
 - Google News RSS: US top stories plus dedicated Animals, Technology, and Viral searches
+- Know Your Meme: newest encyclopedia entries plus Trending, Updated, and Researching surfaces; the highest-priority names are cross-checked on X
 - Direct publisher feeds: NPR, CBS News, The New York Times, The Verge, TechCrunch, WIRED, Mongabay, Catster, Smithsonian Science & Nature, Audubon, the National Wildlife Federation, Houston Zoo, Woodland Park Zoo, Zoo Atlanta, Denver Zoo, Lincoln Park Zoo, and Phoenix Zoo
 - Hacker News API: points and discussion activity
 - X API v2: Trends by WOEID, news-led exact post counts, and direct links to leading public posts
@@ -108,7 +109,7 @@ Keep the query and post limits conservative until you understand your provider b
 
 1. Connectors emit normalized observations with source-native metrics and timestamps.
 2. Related titles are clustered using token overlap.
-3. The base viral score combines relative strength, freshness, source diversity, and saturation. Source priority is X first, direct publishers/news second, and Google Trends as the lowest-weight early-search hint.
+3. The base viral score combines relative strength, freshness, source diversity, and saturation. Source priority is X first, Know Your Meme for meme discovery, direct publishers/news next, and Google Trends as the lowest-weight early-search hint.
 4. Postgres snapshots supply observed velocity for all five time windows.
 5. Stored velocity adjusts lifecycle phase and confidence.
 6. If OpenAI is configured, structured output improves the written classification and forecast. Deterministic heuristics remain the fallback.

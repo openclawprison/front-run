@@ -21,7 +21,7 @@ type RuntimeEnv = {
   PUMPFUN_X_ENRICH_LIMIT?: string;
 };
 
-type SourceKey = "google" | "news" | "publisher" | "hackernews" | "x" | "youtube" | "tiktok";
+type SourceKey = "google" | "news" | "publisher" | "kym" | "hackernews" | "x" | "youtube" | "tiktok";
 
 type Candidate = {
   id: string;
@@ -34,6 +34,7 @@ type Candidate = {
   strength: number;
   detail: string;
   geography: string;
+  categoryHint?: { category: string; subcategory: string };
   platform?: { key: "x" | "tiktok"; metric: PlatformMetric };
   relatedNews?: { title: string; url: string; source: string };
   extraEvidence?: TrendEvidence[];
@@ -77,6 +78,7 @@ function decodeXml(value: string) {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16)))
     .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
     .trim();
 }
@@ -159,6 +161,8 @@ async function collectGoogleNews(): Promise<CollectorResult> {
       { label: "Pet watch", query: "(cat OR kitten OR dog OR puppy OR pet) (viral OR rescue OR adopted OR video) when:2d", limit: 32, strength: 61 },
       { label: "Wildlife watch", query: "(bear OR panda OR bird OR penguin OR elephant OR gorilla OR otter OR capybara OR whale OR dolphin) when:2d", limit: 36, strength: 61 },
       { label: "Technology watch", query: "(technology OR AI OR robot OR Apple OR Google OR OpenAI OR startup OR cybersecurity OR space) when:1d", limit: 24, strength: 58 },
+      { label: "Meme watch", query: "(meme OR memes OR \"reaction image\" OR \"viral format\" OR \"TikTok trend\") when:2d", limit: 28, strength: 63 },
+      { label: "Know Your Meme coverage", query: "site:knowyourmeme.com (meme OR trend OR viral) when:7d", limit: 24, strength: 64 },
       { label: "Viral watch", query: "(viral OR meme OR \"caught on camera\" OR \"social media\") when:1d", limit: 18, strength: 58 },
     ];
     const responses = await Promise.all(feeds.map((feed) => {
@@ -193,6 +197,12 @@ async function collectGoogleNews(): Promise<CollectorResult> {
           strength: clamp(feed.strength - index * 0.55, 36, feed.strength),
           detail: `${outlet} · ${feed.label}`,
           geography: "US",
+          categoryHint: feed.label === "Meme watch" || feed.label === "Know Your Meme coverage" ? {
+            category: "Memes",
+            subcategory: /\b(format|template|reaction image|image macro|redraw|caption)\b/i.test(title)
+              ? "Formats"
+              : /\b(resurgence|resurges|returns|revival|back again)\b/i.test(title) ? "Resurgences" : "Trending",
+          } : undefined,
         });
       });
     });
@@ -200,6 +210,152 @@ async function collectGoogleNews(): Promise<CollectorResult> {
   } catch (error) {
     return { items: [], status: { key: "news", label: "Google News", state: "error", detail: errorMessage(error), itemCount: 0 } };
   }
+}
+
+function htmlAttribute(fragment: string, name: string) {
+  const match = fragment.match(new RegExp(`${name}=(['"])([\\s\\S]*?)\\1`, "i"));
+  return match ? decodeXml(match[2]) : "";
+}
+
+function publicKymUrl(value: string) {
+  try {
+    const url = new URL(value, "https://knowyourmeme.com");
+    if (url.hostname === "origin.knowyourmeme.com") url.hostname = "knowyourmeme.com";
+    return url.toString();
+  } catch {
+    return "https://knowyourmeme.com/";
+  }
+}
+
+function kymDate(value: string, fallback: number) {
+  const timestamp = new Date(value.replace(/(\d)(st|nd|rd|th)\b/gi, "$1")).getTime();
+  return new Date(Number.isFinite(timestamp) ? timestamp : fallback).toISOString();
+}
+
+function kymNewEntries(html: string, observedAt: number): Candidate[] {
+  const items: Candidate[] = [];
+  const anchors = html.matchAll(/<a\s+class=["']item["']([\s\S]*?)>/gi);
+  for (const match of anchors) {
+    const title = htmlAttribute(match[1], "data-title");
+    const href = htmlAttribute(match[1], "href");
+    if (!isUsefulTitle(title) || !/^\/memes\/[a-z0-9]/i.test(href)) continue;
+    const rank = items.length + 1;
+    items.push({
+      id: `kym-new-${slug(title)}`,
+      title,
+      url: publicKymUrl(href),
+      source: "kym",
+      sourceLabel: "Know Your Meme · New entry",
+      publishedAt: new Date(observedAt - (rank - 1) * 5 * 60_000).toISOString(),
+      activity: Math.max(1, 22 - rank),
+      strength: clamp(78 - (rank - 1) * 1.25, 56, 78),
+      detail: `Fresh encyclopedia entry · newest rank #${rank} at detection`,
+      geography: "US internet culture",
+      categoryHint: { category: "Memes", subcategory: "New entries" },
+    });
+    if (items.length >= 18) break;
+  }
+  return items;
+}
+
+function kymEditorials(html: string, subcategory: "Trending" | "New entries" | "Resurgences", observedAt: number, limit: number): Candidate[] {
+  const items: Candidate[] = [];
+  const articles = html.matchAll(/<article\s+data-title=(['"])([\s\S]*?)\1[^>]*>([\s\S]*?)<\/article>/gi);
+  for (const match of articles) {
+    const title = decodeXml(match[2]);
+    const body = match[3];
+    const linkMatch = body.match(/<a\s+[^>]*class=["'][^"']*newsfeed-title[^"']*["'][^>]*>/i)?.[0] ?? "";
+    const href = htmlAttribute(linkMatch, "href");
+    if (!isUsefulTitle(title) || !href) continue;
+    const rank = items.length + 1;
+    const labelBlock = body.match(/<a\s+[^>]*class=["'][^"']*newsfeed-stamp[^"']*["'][^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? subcategory;
+    const label = decodeXml(labelBlock) || subcategory;
+    const dateText = decodeXml(body.match(/<small[^>]*text-muted[^>]*>[\s\S]*?<em>([\s\S]*?)<\/em>/i)?.[1] ?? "");
+    const summary = decodeXml(body.match(/<div>\s*<p>([\s\S]*?)<\/p>\s*<\/div>/i)?.[1] ?? "");
+    items.push({
+      id: `kym-${slug(subcategory)}-${slug(title)}`,
+      title,
+      url: publicKymUrl(href),
+      source: "kym",
+      sourceLabel: `Know Your Meme · ${subcategory}`,
+      publishedAt: kymDate(dateText, observedAt - (rank - 1) * 15 * 60_000),
+      activity: Math.max(1, 18 - rank),
+      strength: clamp((subcategory === "Trending" ? 84 : 77) - (rank - 1) * 1.3, 58, 84),
+      detail: `${label} · KYM ${subcategory.toLowerCase()} surface${summary ? ` · ${summary.slice(0, 120)}` : ""}`,
+      geography: "US internet culture",
+      categoryHint: { category: "Memes", subcategory },
+    });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+async function collectKnowYourMeme(): Promise<CollectorResult> {
+  const observedAt = Date.now();
+  const surfaces = [
+    { url: "https://origin.knowyourmeme.com/categories/meme?sort=newest&status=all", kind: "entries" as const },
+    { url: "https://origin.knowyourmeme.com/newsfeed/trending", kind: "editorial" as const, subcategory: "Trending" as const, limit: 8 },
+    { url: "https://origin.knowyourmeme.com/newsfeed/updated", kind: "editorial" as const, subcategory: "Resurgences" as const, limit: 6 },
+    { url: "https://origin.knowyourmeme.com/newsfeed/researching", kind: "editorial" as const, subcategory: "New entries" as const, limit: 6 },
+  ];
+  const results = await Promise.allSettled(surfaces.map((surface) => fetchText(surface.url, {
+    headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 (compatible; FrontRun/1.0; +https://front-run.onrender.com/)" },
+  }, 18_000)));
+  const seen = new Set<string>();
+  const items: Candidate[] = [];
+  results.forEach((result, index) => {
+    if (result.status !== "fulfilled") return;
+    const surface = surfaces[index];
+    const candidates = surface.kind === "entries"
+      ? kymNewEntries(result.value, observedAt)
+      : kymEditorials(result.value, surface.subcategory, observedAt, surface.limit);
+    for (const candidate of candidates) {
+      const key = normalize(candidate.title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push(candidate);
+    }
+  });
+  if (!items.length) {
+    try {
+      const params = new URLSearchParams({ q: "site:knowyourmeme.com (meme OR trend OR viral) when:7d", hl: "en-US", gl: "US", ceid: "US:en" });
+      const xml = await fetchText(`https://news.google.com/rss/search?${params}`);
+      rssItems(xml).slice(0, 12).forEach((entry, index) => {
+        const rawTitle = tag(entry, "title");
+        const title = rawTitle.replace(/\s+-\s+Know Your Meme$/i, "").trim();
+        if (!isUsefulTitle(title)) return;
+        items.push({
+          id: `kym-fallback-${slug(title)}`,
+          title,
+          url: tag(entry, "link") || "https://knowyourmeme.com/",
+          source: "kym",
+          sourceLabel: "Know Your Meme · indexed coverage",
+          publishedAt: new Date(tag(entry, "pubDate") || observedAt).toISOString(),
+          activity: Math.max(1, 12 - index),
+          strength: clamp(69 - index, 54, 69),
+          detail: "KYM coverage discovered through Google News fallback",
+          geography: "US internet culture",
+          categoryHint: { category: "Memes", subcategory: "Trending" },
+        });
+      });
+    } catch {
+      // The status below reports the direct-surface failures when both paths are unavailable.
+    }
+  }
+  const newCount = items.filter((item) => item.categoryHint?.subcategory === "New entries").length;
+  const trendingCount = items.filter((item) => item.categoryHint?.subcategory === "Trending").length;
+  const resurgenceCount = items.filter((item) => item.categoryHint?.subcategory === "Resurgences").length;
+  const liveSurfaces = results.filter((result) => result.status === "fulfilled").length;
+  return {
+    items,
+    status: {
+      key: "kym",
+      label: "Know Your Meme",
+      state: items.length ? "live" : "error",
+      detail: items.length ? `${newCount} fresh/researching · ${trendingCount} trending · ${resurgenceCount} updated · ${liveSurfaces}/4 direct surfaces live` : "KYM direct and indexed surfaces did not respond",
+      itemCount: items.length,
+    },
+  };
 }
 
 type HnItem = { id: number; title?: string; url?: string; time?: number; score?: number; descendants?: number; type?: string };
@@ -572,9 +728,9 @@ async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ co
 }
 
 function xCandidatePriority(item: Candidate) {
-  const [category] = categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews));
-  const categoryBoost = category === "Animals" ? 90 : category === "Technology" ? 75 : category === "Viral events" ? 55 : 25;
-  const sourceBoost = item.source === "publisher" ? 16 : item.source === "news" ? 10 : item.source === "google" ? 2 : 0;
+  const category = item.categoryHint?.category ?? categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews))[0];
+  const categoryBoost = category === "Memes" ? 105 : category === "Animals" ? 90 : category === "Technology" ? 75 : category === "Viral events" ? 55 : 25;
+  const sourceBoost = item.source === "kym" ? 24 : item.source === "publisher" ? 16 : item.source === "news" ? 10 : item.source === "google" ? 2 : 0;
   return categoryBoost + sourceBoost + item.strength;
 }
 
@@ -615,16 +771,29 @@ async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult>
   const totalLimit = clamp(Number(runtime.X_COUNT_ENRICH_LIMIT ?? 12) || 12, 1, 20);
   const storyLimit = Math.min(9, Math.max(1, totalLimit - 3));
   const storySeen = new Set<string>();
-  const storySeeds = [...sourceCandidates]
-    .filter((item) => item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
+  const rankedStorySeeds = [...sourceCandidates]
+    .filter((item) => item.source === "kym" || item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
     .sort((a, b) => xCandidatePriority(b) - xCandidatePriority(a))
     .filter((item) => {
       const key = normalize(shortTrendTitle(item.title));
       if (!key || storySeen.has(key)) return false;
       storySeen.add(key);
       return true;
-    })
-    .slice(0, storyLimit);
+    });
+  const selectedStorySeeds = new Map<string, Candidate>();
+  const addStorySeeds = (candidates: Candidate[], limit: number) => {
+    for (const candidate of candidates) {
+      if (selectedStorySeeds.size >= storyLimit || limit <= 0) break;
+      const key = normalize(shortTrendTitle(candidate.title));
+      if (selectedStorySeeds.has(key)) continue;
+      selectedStorySeeds.set(key, candidate);
+      limit -= 1;
+    }
+  };
+  addStorySeeds(rankedStorySeeds.filter((item) => item.categoryHint?.category === "Memes"), Math.min(5, storyLimit));
+  addStorySeeds(rankedStorySeeds.filter((item) => (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === "Animals"), Math.min(3, storyLimit - selectedStorySeeds.size));
+  addStorySeeds(rankedStorySeeds, storyLimit - selectedStorySeeds.size);
+  const storySeeds = [...selectedStorySeeds.values()];
   const targets = [
     ...nativeItems.slice(0, Math.max(0, totalLimit - storySeeds.length)).map((item) => ({ kind: "native" as const, item })),
     ...storySeeds.map((item) => ({ kind: "story" as const, item })),
@@ -845,6 +1014,17 @@ function shortTrendTitle(input: string) {
     .replace(/^[“”'"‘’]+|[“”'"‘’]+$/g, "")
     .replace(/^(breaking|exclusive|watch|video|analysis|explained|who is|what is)\s*[:?—-]*\s*/i, "")
     .trim();
+  const quotedQuestion = input.match(/^(?:Who|What)\s+Is\s+(?:The\s+)?['“]([^'”]{2,60})['”]/i)
+    ?? input.match(/^(?:Who|What)\s+Is\s+(?:The\s+)?([^?]{2,60})\?/i);
+  if (quotedQuestion) return compactTrendTitle(quotedQuestion[1].replace(/[?!]+$/g, ""));
+  const quotedMeme = input.match(/['“]([^'”]{2,80})['”]\s+(?:meme|memes|trend)\b/i);
+  if (quotedMeme) return compactTrendTitle(quotedMeme[1].replace(/[?!]+$/g, ""));
+  const catchphrase = input.match(/\bcatchphrase\s+['“]([^'”]{2,80})['”]/i);
+  if (catchphrase) return compactTrendTitle(catchphrase[1].replace(/[?!]+$/g, ""));
+  if (/\bFitGirl Repacks\b/i.test(input)) return compactTrendTitle("FitGirl Repacks");
+  const documentary = input.match(/\b([A-Z]{2,}\d*\s+Documentary)\b/);
+  if (documentary) return compactTrendTitle(documentary[1]);
+  if (/^Cursed Pam Beesly and Stanley Hudson Screenshot$/i.test(input)) return compactTrendTitle("Cursed Pam & Stanley");
   const ugliestDog = title.match(/^Meet\s+([^,]+),.*World'?s Ugliest Dog/i);
   if (ugliestDog) return compactTrendTitle(`${ugliestDog[1]}, Ugliest Dog Winner`);
   const foodBear = title.match(/\b(bear|polar bear|black bear|brown bear)\b.*\bbroke into\b.*\b(KFC|pizza|tacos?|food)\b/i);
@@ -921,6 +1101,11 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
   const politicalContext = match(["government", "voter", "voters", "election", "congress", "senate", "governor", "state decision", "feds", "federal"]);
   const explicitBirdContext = match(["birds", "bird flu", "avian", "wildlife", "zoo", "nest", "wing", "wings", "feather", "feathers", "flock", "penguin", "eagle", "owl", "parrot", "duck", "goose", "falcon", "kagu"]);
   if (wordSet.has("bird") && politicalContext && !explicitBirdContext) return ["News", "World"];
+  if (match(["meme", "memes", "image macro", "reaction image", "shitpost", "copypasta"])) {
+    if (match(["resurgence", "resurges", "returns", "revival", "back again"])) return ["Memes", "Resurgences"];
+    if (match(["format", "template", "exploitable", "image macro", "reaction image"])) return ["Memes", "Formats"];
+    return ["Memes", "Trending"];
+  }
   if (match(["bear", "bears", "polar bear", "panda", "grizzly"])) return ["Animals", "Bears"];
   if (match(["whale", "shark", "dolphin", "octopus", "ocean", "seal", "orca", "sea turtle", "manatee", "aquarium"])) return ["Animals", "Marine"];
   if (match(["bird", "birds", "crow", "eagle", "owl", "parrot", "penguin", "duck", "goose", "falcon"])) return ["Animals", "Birds"];
@@ -934,7 +1119,7 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
   if (match(["challenge"])) return ["Viral events", "Challenges"];
   if (match(["reaction", "reacts", "response"])) return ["Viral events", "Reactions"];
   if (match(["format", "template", "trend format", "dance trend"])) return ["Viral events", "Formats"];
-  if (match(["meme", "joke", "shitpost", "copypasta"])) return ["Internet culture", "Memes"];
+  if (match(["joke"])) return ["Internet culture", "Creator lore"];
   if (match(["slang", "phrase", "word", "saying"])) return ["Internet culture", "Language"];
   if (match(["creator lore", "fandom", "stan", "internet drama"])) return ["Internet culture", "Creator lore"];
   if (match(["cybersecurity", "cyberattack", "hack", "hacker", "malware", "spyware", "ransomware", "data breach"])) return ["Technology", "Cybersecurity"];
@@ -952,7 +1137,7 @@ function categoryFor(title: string, hasPublisherContext = false): [string, strin
 }
 
 function toneFor(category: string) {
-  return ({ Animals: "ice", Technology: "blue", News: "amber", "Viral events": "violet", "Internet culture": "blue", Entertainment: "rose", Sports: "green", "Food & drink": "orange" } as Record<string, string>)[category] || "sand";
+  return ({ Memes: "violet", Animals: "ice", Technology: "blue", News: "amber", "Viral events": "violet", "Internet culture": "blue", Entertainment: "rose", Sports: "green", "Food & drink": "orange" } as Record<string, string>)[category] || "sand";
 }
 
 function ageLabel(date: string) {
@@ -969,13 +1154,14 @@ function errorMessage(error: unknown) {
 }
 
 function sourcePriorityWeight(source: SourceKey) {
-  return ({ x: 1, publisher: 0.9, news: 0.82, tiktok: 0.8, youtube: 0.78, hackernews: 0.7, google: 0.55 } as Record<SourceKey, number>)[source];
+  return ({ x: 1, kym: 0.94, publisher: 0.9, news: 0.82, tiktok: 0.8, youtube: 0.78, hackernews: 0.7, google: 0.55 } as Record<SourceKey, number>)[source];
 }
 
 function buildTrend(cluster: Candidate[]): Trend {
   const leader = [...cluster].sort((a, b) => b.strength * sourcePriorityWeight(b.source) - a.strength * sourcePriorityWeight(a.source))[0];
   const classificationText = cluster.map((item) => `${item.title} ${item.relatedNews?.title ?? ""}`).join(" ");
-  const [category, subcategory] = categoryFor(classificationText, cluster.some((item) => item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews)));
+  const categoryHint = [...cluster].sort((a, b) => b.strength - a.strength).find((item) => item.categoryHint)?.categoryHint;
+  const [category, subcategory] = categoryHint ? [categoryHint.category, categoryHint.subcategory] : categoryFor(classificationText, cluster.some((item) => item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews)));
   const firstDate = cluster.reduce((earliest, item) => new Date(item.publishedAt).getTime() < new Date(earliest).getTime() ? item.publishedAt : earliest, leader.publishedAt);
   const ageMinutes = Math.max(1, (Date.now() - new Date(firstDate).getTime()) / 60_000);
   const activity = Math.round(cluster.reduce((sum, item) => sum + item.activity, 0));
@@ -1068,14 +1254,27 @@ function clusterCandidates(items: Candidate[]) {
     if (balancedAnimals.size >= 25) break;
     balancedAnimals.set(trend.id, trend);
   }
+  const balancedMemes = new Map<string, Trend>();
+  for (const subcategory of ["Trending", "New entries", "Resurgences", "Formats"]) {
+    for (const trend of ranked.filter((candidate) => candidate.category === "Memes" && candidate.subcategory === subcategory).slice(0, 4)) balancedMemes.set(trend.id, trend);
+  }
+  for (const trend of ranked.filter((candidate) => candidate.category === "Memes")) {
+    if (balancedMemes.size >= 15) break;
+    balancedMemes.set(trend.id, trend);
+  }
   const reserved = [
     ...balancedAnimals.values(),
+    ...balancedMemes.values(),
     ...ranked.filter((trend) => trend.category === "Technology").slice(0, 12),
   ];
   const selected = new Map(reserved.map((trend) => [trend.id, trend]));
+  let memeCount = [...selected.values()].filter((trend) => trend.category === "Memes").length;
   for (const trend of ranked) {
     if (selected.size >= 75) break;
+    if (trend.category === "Memes" && memeCount >= 20) continue;
+    if (selected.has(trend.id)) continue;
     selected.set(trend.id, trend);
+    if (trend.category === "Memes") memeCount += 1;
   }
   return [...selected.values()].sort((a, b) => b.score["30m"] - a.score["30m"]);
 }
@@ -1139,7 +1338,7 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
       if (!analysis) return trend;
       const taxonomyEntry = TREND_TAXONOMY.find((category) => category.name === analysis.category);
       const validClassification = taxonomyEntry?.subcategories.some((subcategory) => subcategory === analysis.subcategory);
-      const lockDeterministicCategory = trend.category === "Animals" || trend.category === "Technology" || trend.category === "Sports";
+      const lockDeterministicCategory = trend.category === "Memes" || trend.category === "Animals" || trend.category === "Technology" || trend.category === "Sports";
       const category = !lockDeterministicCategory && validClassification ? analysis.category : trend.category;
       const subcategory = !lockDeterministicCategory && validClassification ? analysis.subcategory : trend.subcategory;
       return { ...trend, title: shortTrendTitle(analysis.title), category, subcategory, summary: analysis.summary.trim(), forecast: analysis.forecast.trim(), forecastTime: analysis.forecastTime, signals: analysis.signals, tone: toneFor(category) };
@@ -1152,7 +1351,7 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
 
 export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map()): Promise<TrendsPayload> {
   const [publicCollectors, pumpCollector] = await Promise.all([
-    Promise.all([collectGoogleTrends(), collectGoogleNews(), collectPublisherNews(), collectHackerNews(), collectYouTube()]),
+    Promise.all([collectGoogleTrends(), collectGoogleNews(), collectKnowYourMeme(), collectPublisherNews(), collectHackerNews(), collectYouTube()]),
     collectPumpFun(),
   ]);
   const x = await collectX(publicCollectors.flatMap((collector) => collector.items));

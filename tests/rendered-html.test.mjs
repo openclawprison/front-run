@@ -30,6 +30,10 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /api\.x\.com\/2\/tweets\/search\/recent/);
   assert.match(engine, /Animal watch/);
   assert.match(engine, /Technology watch/);
+  assert.match(engine, /Know Your Meme coverage/);
+  assert.match(engine, /collectKnowYourMeme/);
+  assert.match(engine, /category === "Memes"/);
+  assert.match(engine, /balancedMemes\.size >= 15/);
   assert.match(engine, /National Wildlife Federation/);
   assert.match(engine, /Khao Kheow Open Zoo/);
   assert.match(engine, /Houston Zoo/);

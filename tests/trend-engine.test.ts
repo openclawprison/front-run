@@ -39,8 +39,13 @@ const feed = rss([
   { title: officialTitle, link: "https://news.example/government", source: "State News", traffic: "3K+" },
 ]);
 
+const kymEntriesHtml = `<a class="item" data-title="Bicep Trend" href="/memes/bicep-trend"><h3>Bicep Trend</h3></a>`;
+const kymTrendingHtml = `<article data-title="Cursed Pam Beesly Meme" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/cursed-pam" class="newsfeed-title">Cursed Pam Beesly Meme</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A reaction image is spreading.</p></div></article>`;
+const kymUpdatedHtml = `<article data-title="Corn Dog Cat Meme Returns" data-type="Editorial"><a href="/memes/corn-dog-cat" class="newsfeed-title">Corn Dog Cat Meme Returns</a><a class="newsfeed-stamp">Updated</a><small class="text-muted"><em></em></small><div><p>An older meme is resurging.</p></div></article>`;
+const kymResearchingHtml = `<article data-title="Three Layer Dip Stack" data-type="Editorial"><a href="/memes/three-layer-dip-stack" class="newsfeed-title">Three Layer Dip Stack</a><a class="newsfeed-stamp">Researching</a><small class="text-muted"><em></em></small><div><p>A new format is being documented.</p></div></article>`;
+
 process.env.X_BEARER_TOKEN = "test-token";
-process.env.X_COUNT_ENRICH_LIMIT = "4";
+process.env.X_COUNT_ENRICH_LIMIT = "8";
 process.env.X_POSTS_PER_TREND = "10";
 process.env.PUMPFUN_LIMIT = "4";
 process.env.PUMPFUN_ENRICH_LIMIT = "1";
@@ -51,6 +56,10 @@ delete process.env.BRIGHTDATA_API_TOKEN;
 
 globalThis.fetch = (async (input: string | URL | Request) => {
   const url = String(input);
+  if (url.includes("origin.knowyourmeme.com/categories/meme")) return new Response(kymEntriesHtml, { status: 200 });
+  if (url.includes("origin.knowyourmeme.com/newsfeed/trending")) return new Response(kymTrendingHtml, { status: 200 });
+  if (url.includes("origin.knowyourmeme.com/newsfeed/updated")) return new Response(kymUpdatedHtml, { status: 200 });
+  if (url.includes("origin.knowyourmeme.com/newsfeed/researching")) return new Response(kymResearchingHtml, { status: 200 });
   if (url.includes("trends.google.com/trending/rss")) return new Response(feed, { status: 200 });
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
   if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org|houstonzoo\.org|blog\.zoo\.org|zooatlanta\.org|denverzoo\.org|lpzoo\.org|phoenixzoo\.org/.test(url)) return new Response(feed, { status: 200 });
@@ -85,11 +94,13 @@ test("discovers category-specific news and enriches a story with X counts and le
   const technology = payload.trends.find((trend) => trend.category === "Technology");
   const baseball = payload.trends.find((trend) => trend.title.includes("Crow-Armstrong"));
   const government = payload.trends.find((trend) => trend.title.includes("Bird defends"));
+  const meme = payload.trends.find((trend) => trend.category === "Memes");
 
   assert.ok(animal, "expected an animal trend");
   assert.ok(technology, "expected a technology trend");
   assert.ok(baseball, "expected the Pete Crow-Armstrong story");
   assert.ok(government, "expected the government official story");
+  assert.ok(meme, "expected a Know Your Meme signal");
   assert.equal(baseball.category, "Sports");
   assert.equal(government.category, "News");
   assert.equal(animal.title, "Brown Bear Trail Attack");
@@ -99,8 +110,10 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
   assert.ok(animal.evidence.some((item) => item.url === "https://news.example/bear"));
   assert.ok(observedXQueries.length >= 2);
-  const newsQueries = observedXQueries.filter((query) => !query.includes("Jimothy"));
-  assert.ok(newsQueries.every((query) => query.includes("bear") && !query.includes("runner was the person")));
+  assert.ok(observedXQueries.some((query) => query.includes("bear") && !query.includes("runner was the person")));
+  assert.ok(observedXQueries.some((query) => /bicep|pam|corn dog|dip stack/i.test(query)));
+  assert.ok(meme.evidence.some((item) => item.url.includes("knowyourmeme.com")));
+  assert.equal(payload.sources.find((source) => source.key === "kym")?.state, "live");
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /top-post links/);
   assert.equal(payload.pumpCoins[0]?.name, "Jimothy The Raccoon");
   assert.equal(payload.pumpCoins[0]?.bucket, "Trending now");

@@ -3,11 +3,12 @@ export type Phase = "Igniting" | "Accelerating" | "Peaking" | "Cooling";
 export type WindowValues = Record<TimeWindow, number>;
 
 export const TREND_TAXONOMY = [
+  { name: "Memes", subcategories: ["Trending", "New entries", "Resurgences", "Formats"] },
   { name: "Animals", subcategories: ["Cats", "Dogs", "Bears", "Birds", "Marine", "Wildlife"] },
   { name: "Technology", subcategories: ["AI", "Consumer tech", "Space", "Startups", "Cybersecurity"] },
   { name: "News", subcategories: ["World", "Business", "Science", "Culture"] },
   { name: "Viral events", subcategories: ["Challenges", "Moments", "Reactions", "Formats"] },
-  { name: "Internet culture", subcategories: ["Memes", "Language", "Creator lore"] },
+  { name: "Internet culture", subcategories: ["Language", "Creator lore"] },
   { name: "Entertainment", subcategories: ["Music", "Film & TV", "Creators"] },
   { name: "Sports", subcategories: ["Football", "Cricket", "Basketball", "Other"] },
   { name: "Food & drink", subcategories: ["Recipes", "Restaurants", "Food loops"] },
