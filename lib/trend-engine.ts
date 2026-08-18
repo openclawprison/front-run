@@ -797,6 +797,10 @@ async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult>
   const storySeen = new Set<string>();
   const rankedStorySeeds = [...sourceCandidates]
     .filter((item) => item.source === "kym" || item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
+    .filter((item) => {
+      const category = item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0];
+      return category !== "Memes" || !isLowSignalMemeCollection(item.title);
+    })
     .sort((a, b) => xCandidatePriority(b) - xCandidatePriority(a))
     .filter((item) => {
       const key = normalize(shortTrendTitle(item.title));
@@ -814,8 +818,10 @@ async function collectX(sourceCandidates: Candidate[]): Promise<CollectorResult>
       limit -= 1;
     }
   };
-  addStorySeeds(rankedStorySeeds.filter((item) => item.categoryHint?.category === "Memes"), Math.min(5, storyLimit));
-  addStorySeeds(rankedStorySeeds.filter((item) => (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === "Animals"), Math.min(3, storyLimit - selectedStorySeeds.size));
+  const animalQuota = Math.min(3, Math.max(1, Math.floor(storyLimit * 0.4)));
+  const memeQuota = Math.min(5, Math.max(1, storyLimit - animalQuota));
+  addStorySeeds(rankedStorySeeds.filter((item) => item.categoryHint?.category === "Memes"), memeQuota);
+  addStorySeeds(rankedStorySeeds.filter((item) => (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === "Animals"), animalQuota);
   addStorySeeds(rankedStorySeeds, storyLimit - selectedStorySeeds.size);
   const storySeeds = [...selectedStorySeeds.values()];
   const targets = [
@@ -1024,7 +1030,12 @@ function isUsefulTitle(title: string) {
 }
 
 function isLowSignalMemeCollection(title: string) {
-  return /^(?:the\s+)?best memes\b|^\d+\s+(?:hilarious|funny|stunning|bizarre|confusing|wholesome|random|optical|wild)\b|\b(?:weekly meme roundup|meme dump|memes of the week|enjoy (?:a|these|\d+) memes?)\b/i.test(title);
+  const normalized = title.replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
+  return /\b(?:top|best|funniest|hilarious|greatest|favorite|favourite|iconic|classic|popular|relatable|random|wholesome|wild)\s+(?:\d+\s+)?memes?\b/i.test(normalized)
+    || /(?:^|\b)\d+\s+(?:(?:hilarious|funny|stunning|bizarre|confusing|wholesome|random|relatable|iconic|classic|wild|internet)\s+){0,3}memes?\b/i.test(normalized)
+    || /\bmemes?\s+(?:of|from)\s+(?:the\s+)?(?:day|week|month|year|decade|2010s|2020s|internet)\b/i.test(normalized)
+    || /\b(?:daily|weekly|monthly)\s+memes?\b|\b(?:meme roundup|meme dump|meme compilation|meme collection|collection of memes|meme list|memes to make you|memes that will)\b/i.test(normalized)
+    || /\b(?:these|here are|enjoy)\s+(?:the\s+)?(?:\d+\s+)?memes?\b/i.test(normalized);
 }
 
 function compactTrendTitle(value: string) {
@@ -1244,6 +1255,7 @@ function buildTrend(cluster: Candidate[]): Trend {
     sources,
     platforms,
     firstSeen: ageLabel(firstDate),
+    firstSeenAt: new Date(firstDate).toISOString(),
     geography: [...new Set(cluster.map((item) => item.geography))].slice(0, 3).join(" · "),
     forecast,
     forecastTime,
@@ -1266,6 +1278,12 @@ function buildTrend(cluster: Candidate[]): Trend {
   };
 }
 
+const TOTAL_TREND_LIMIT = 250;
+const ANIMAL_TREND_RESERVE = 40;
+const ANIMAL_TREND_LIMIT = 50;
+const MEME_TREND_RESERVE = 18;
+const MEME_TREND_LIMIT = 24;
+
 function clusterCandidates(items: Candidate[]) {
   const clusters: Candidate[][] = [];
   for (const item of [...items].sort((a, b) => b.strength - a.strength)) {
@@ -1273,13 +1291,16 @@ function clusterCandidates(items: Candidate[]) {
     if (existing) existing.push(item);
     else clusters.push([item]);
   }
-  const ranked = clusters.map(buildTrend).sort((a, b) => b.score["30m"] - a.score["30m"]);
+  const ranked = clusters
+    .map(buildTrend)
+    .filter((trend) => trend.category !== "Memes" || !trend.evidence.some((item) => isLowSignalMemeCollection(item.title)))
+    .sort((a, b) => b.score["30m"] - a.score["30m"]);
   const balancedAnimals = new Map<string, Trend>();
   for (const subcategory of ["Cats", "Dogs", "Bears", "Birds", "Marine"]) {
-    for (const trend of ranked.filter((candidate) => candidate.category === "Animals" && candidate.subcategory === subcategory).slice(0, 4)) balancedAnimals.set(trend.id, trend);
+    for (const trend of ranked.filter((candidate) => candidate.category === "Animals" && candidate.subcategory === subcategory).slice(0, 6)) balancedAnimals.set(trend.id, trend);
   }
   for (const trend of ranked.filter((candidate) => candidate.category === "Animals")) {
-    if (balancedAnimals.size >= 25) break;
+    if (balancedAnimals.size >= ANIMAL_TREND_RESERVE) break;
     balancedAnimals.set(trend.id, trend);
   }
   const balancedMemes = new Map<string, Trend>();
@@ -1287,21 +1308,24 @@ function clusterCandidates(items: Candidate[]) {
     for (const trend of ranked.filter((candidate) => candidate.category === "Memes" && candidate.subcategory === subcategory).slice(0, 4)) balancedMemes.set(trend.id, trend);
   }
   for (const trend of ranked.filter((candidate) => candidate.category === "Memes")) {
-    if (balancedMemes.size >= 15) break;
+    if (balancedMemes.size >= MEME_TREND_RESERVE) break;
     balancedMemes.set(trend.id, trend);
   }
   const reserved = [
     ...balancedAnimals.values(),
     ...balancedMemes.values(),
-    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 12),
+    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 20),
   ];
   const selected = new Map(reserved.map((trend) => [trend.id, trend]));
+  let animalCount = [...selected.values()].filter((trend) => trend.category === "Animals").length;
   let memeCount = [...selected.values()].filter((trend) => trend.category === "Memes").length;
   for (const trend of ranked) {
-    if (selected.size >= 75) break;
-    if (trend.category === "Memes" && memeCount >= 20) continue;
+    if (selected.size >= TOTAL_TREND_LIMIT) break;
+    if (trend.category === "Animals" && animalCount >= ANIMAL_TREND_LIMIT) continue;
+    if (trend.category === "Memes" && memeCount >= MEME_TREND_LIMIT) continue;
     if (selected.has(trend.id)) continue;
     selected.set(trend.id, trend);
+    if (trend.category === "Animals") animalCount += 1;
     if (trend.category === "Memes") memeCount += 1;
   }
   return [...selected.values()].sort((a, b) => b.score["30m"] - a.score["30m"]);

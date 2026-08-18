@@ -527,6 +527,52 @@ input:focus-visible {
   font-weight: 550;
 }
 
+.rail-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.sort-control {
+  min-width: 148px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px 3px 10px;
+  color: #777c73;
+  background: #e5e4de;
+  border: 1px solid #d9d8d1;
+  border-radius: 8px;
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sort-control select {
+  min-width: 0;
+  flex: 1;
+  padding: 5px 18px 5px 0;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 570;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sort-control svg {
+  position: absolute;
+  right: 8px;
+  pointer-events: none;
+}
+
 .switch-control input {
   position: absolute;
   opacity: 0;
@@ -1718,6 +1764,13 @@ input:focus-visible {
   letter-spacing: -0.02em;
 }
 
+.drawer-score-copy .drawer-summary-copy {
+  margin: 7px 0 0;
+  color: #eef0e9;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
 .drawer-score-copy p {
   margin: 0;
   color: #9da398;
@@ -1797,6 +1850,17 @@ input:focus-visible {
   color: #4f544d;
   font-size: 11px;
   line-height: 1.62;
+}
+
+.forecast-window {
+  margin: -5px 0 15px;
+  color: #777c73;
+  font-size: 9px;
+}
+
+.forecast-window strong {
+  color: #4f6924;
+  font-weight: 650;
 }
 
 .signal-reasons {
@@ -2115,6 +2179,11 @@ input:focus-visible {
   .control-rail {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .rail-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .time-tabs {

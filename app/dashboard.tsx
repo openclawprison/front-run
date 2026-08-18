@@ -40,6 +40,17 @@ const timeWindows: { key: TimeWindow; label: string }[] = [
   { key: "24h", label: "24 hours" },
 ];
 
+type SortMode = "viral" | "newest" | "oldest";
+
+const firstSeenValue = (trend: Trend, fallback: number) => {
+  const timestamp = new Date(trend.firstSeenAt ?? "").getTime();
+  if (Number.isFinite(timestamp)) return timestamp;
+  const minutes = Number(trend.firstSeen.match(/^(\d+)m/)?.[1] ?? 0);
+  const hours = Number(trend.firstSeen.match(/^(\d+)h/)?.[1] ?? 0);
+  const days = Number(trend.firstSeen.match(/^(\d+)d/)?.[1] ?? 0);
+  return fallback - (days * 1440 + hours * 60 + minutes) * 60_000;
+};
+
 const categoryIcons = { Memes: Laugh, Animals: PawPrint, Technology: Cpu, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
 const categories = [
   { name: "All trends", icon: LayoutGrid, subs: [] as string[] },
@@ -99,6 +110,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
   const [expandedCategory, setExpandedCategory] = useState<string | null>("Animals");
   const [query, setQuery] = useState("");
   const [acceleratingOnly, setAcceleratingOnly] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>("viral");
   const [selectedTrend, setSelectedTrend] = useState<Trend | null>(null);
   const [watching, setWatching] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(!initialPayload);
@@ -152,13 +164,18 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
   const trends = useMemo(() => payload?.trends ?? [], [payload]);
   const visibleTrends = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return trends
+    const fallbackTime = payload ? new Date(payload.refreshedAt).getTime() : 0;
+    return [...trends]
       .filter((trend) => category === "All trends" || trend.category === category)
       .filter((trend) => !subcategory || trend.subcategory === subcategory)
       .filter((trend) => !acceleratingOnly || trend.phase === "Igniting" || trend.phase === "Accelerating")
       .filter((trend) => !normalizedQuery || [trend.title, trend.category, trend.subcategory, ...trend.tags].join(" ").toLowerCase().includes(normalizedQuery))
-      .sort((a, b) => b.score[activeWindow] - a.score[activeWindow]);
-  }, [activeWindow, acceleratingOnly, category, query, subcategory, trends]);
+      .sort((a, b) => {
+        if (sortMode === "newest") return firstSeenValue(b, fallbackTime) - firstSeenValue(a, fallbackTime) || b.score[activeWindow] - a.score[activeWindow];
+        if (sortMode === "oldest") return firstSeenValue(a, fallbackTime) - firstSeenValue(b, fallbackTime) || b.score[activeWindow] - a.score[activeWindow];
+        return b.score[activeWindow] - a.score[activeWindow] || firstSeenValue(b, fallbackTime) - firstSeenValue(a, fallbackTime);
+      });
+  }, [activeWindow, acceleratingOnly, category, payload, query, sortMode, subcategory, trends]);
 
   const headlineTrends = visibleTrends.slice(0, 3);
   const pumpCoins = useMemo(() => [...(payload?.pumpCoins ?? [])].sort((a, b) => b.score[activeWindow] - a.score[activeWindow]), [activeWindow, payload?.pumpCoins]);
@@ -265,7 +282,10 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
 
           <section className="control-rail" aria-label="Trend time window">
             <div className="time-tabs">{timeWindows.map((window) => <button key={window.key} className={activeWindow === window.key ? "is-active" : ""} onClick={() => setActiveWindow(window.key)}>{window.label}</button>)}</div>
-            <label className="switch-control"><input type="checkbox" checked={acceleratingOnly} onChange={(event) => setAcceleratingOnly(event.target.checked)} /><span className="switch-track" />Rising only</label>
+            <div className="rail-actions">
+              <label className="sort-control"><span>Sort</span><select aria-label="Sort trends" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}><option value="viral">Viral score</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select><ChevronDown size={13} /></label>
+              <label className="switch-control"><input type="checkbox" checked={acceleratingOnly} onChange={(event) => setAcceleratingOnly(event.target.checked)} /><span className="switch-track" />Rising only</label>
+            </div>
           </section>
 
           {headlineTrends.length > 0 ? (
@@ -365,12 +385,12 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
             <div className="drawer-content">
               <div className="drawer-title-row"><div className={`trend-mark large tone-${selectedTrend.tone}`}>{selectedTrend.mark}</div><div><span>{selectedTrend.category} · {selectedTrend.subcategory}</span><h2>{selectedTrend.title}</h2></div></div>
               <div className="drawer-status-row"><PhasePill phase={selectedTrend.phase} /><span>First seen {selectedTrend.firstSeen}</span><span>{selectedTrend.geography}</span></div>
-              <section className="drawer-score-card"><div><span>Viral score · {activeWindow}</span><ScoreRing value={selectedTrend.score[activeWindow]} /></div><div className="drawer-score-copy"><span>What happens next</span><h3>{selectedTrend.forecast}</h3><p>Expected decision window: <strong>{selectedTrend.forecastTime}</strong></p></div></section>
+              <section className="drawer-score-card"><div><span>Viral score · {activeWindow}</span><ScoreRing value={selectedTrend.score[activeWindow]} /></div><div className="drawer-score-copy"><span>Summary</span><p className="drawer-summary-copy">{selectedTrend.summary}</p></div></section>
               <section className="trajectory-section">
                 <div className="drawer-section-head"><div><span>Trajectory</span><h3>Momentum is {selectedTrend.phase.toLowerCase()}</h3></div><strong className={selectedTrend.growth[activeWindow] >= 0 ? "positive" : "negative"}>{selectedTrend.growth[activeWindow] >= 0 ? "+" : ""}{selectedTrend.growth[activeWindow]}%</strong></div>
                 <div className="drawer-chart"><SparkBars values={selectedTrend.spark} phase={selectedTrend.phase} large /></div><div className="drawer-axis"><span>First detection</span><span>Current</span><span>Projected</span></div>
               </section>
-              <section className="drawer-section"><span className="drawer-label">Summary</span><p className="analyst-copy">{selectedTrend.summary}</p><div className="signal-reasons">{selectedTrend.signals.map((signal) => <div key={signal}><Zap size={14} /><span>{signal}</span></div>)}</div></section>
+              <section className="drawer-section"><span className="drawer-label">What happens next</span><p className="analyst-copy">{selectedTrend.forecast}</p><p className="forecast-window">Expected decision window: <strong>{selectedTrend.forecastTime}</strong></p><div className="signal-reasons">{selectedTrend.signals.map((signal) => <div key={signal}><Zap size={14} /><span>{signal}</span></div>)}</div></section>
               <section className="drawer-section">
                 <div className="drawer-section-head"><div><span>Source mix</span><h3>Where the signal lives</h3></div><small>{formatNumber(selectedTrend.mentions[activeWindow])} observed activity</small></div>
                 <div className="source-bars">{Object.entries(selectedTrend.sources).map(([source, value]) => <div key={source}><div><span>{source === "x" ? "X" : source === "kym" ? "Know Your Meme" : source === "hackernews" ? "Hacker News" : source.charAt(0).toUpperCase() + source.slice(1)}</span><strong>{value}%</strong></div><div className="source-track"><span style={{ width: `${value}%` }} /></div></div>)}</div>

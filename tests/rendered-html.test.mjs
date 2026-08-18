@@ -22,6 +22,8 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /Pump\.fun attention radar/);
   assert.match(dashboard, /Not an endorsement/);
   assert.match(dashboard, /TREND_TAXONOMY/);
+  assert.match(dashboard, /Newest first/);
+  assert.match(dashboard, /firstSeenAt/);
   assert.doesNotMatch(dashboard, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
   assert.match(route, /readOrRefreshTrends/);
@@ -33,12 +35,14 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /Know Your Meme coverage/);
   assert.match(engine, /collectKnowYourMeme/);
   assert.match(engine, /category === "Memes"/);
-  assert.match(engine, /balancedMemes\.size >= 15/);
+  assert.match(engine, /MEME_TREND_RESERVE = 18/);
+  assert.match(engine, /isLowSignalMemeCollection/);
   assert.match(engine, /National Wildlife Federation/);
   assert.match(engine, /Khao Kheow Open Zoo/);
   assert.match(engine, /Houston Zoo/);
-  assert.match(engine, /balancedAnimals\.size >= 25/);
-  assert.match(engine, /selected\.size >= 75/);
+  assert.match(engine, /ANIMAL_TREND_RESERVE = 40/);
+  assert.match(engine, /ANIMAL_TREND_LIMIT = 50/);
+  assert.match(engine, /TOTAL_TREND_LIMIT = 250/);
   assert.match(engine, /frontend-api-v3\.pump\.fun/);
   assert.match(engine, /sourcePriorityWeight/);
   assert.match(engine, /shortTrendTitle/);

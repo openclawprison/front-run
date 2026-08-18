@@ -4,7 +4,7 @@ Front Run is a live early-signal dashboard for finding internet trends before th
 
 Front Run's main ranking tracks internet trends. A separate Pump.fun attention radar shows what that platform is surfacing and attempts to trace each listing back to X, news, or an existing Front Run narrative. Coin activity is never mixed into the main trend score and is not a recommendation to buy.
 
-Each ingestion keeps up to 75 ranked signals, reserving roughly 25 places for Animals, 15 for Memes, and 12 for Technology. Animal coverage is balanced across cats, dogs, bears, birds, marine life, wildlife, and zoo stories.
+Each ingestion keeps up to 250 ranked signals, reserving at least 40 and capping around 50 places for Animals, 18 for current individual Memes, and 20 for Technology. Animal coverage is balanced across cats, dogs, bears, birds, marine life, wildlife, and zoo stories. Meme roundup and listicle pages are excluded so the meme section stays focused on specific formats and characters moving now.
 
 ## What is real data
 

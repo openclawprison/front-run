@@ -81,7 +81,7 @@ export async function getRecentHistory(db: Sql): Promise<Map<string, HistoricalS
     FROM trend_snapshots
     WHERE observed_at >= ${since}
     ORDER BY observed_at DESC
-    LIMIT 2500
+    LIMIT 80000
   `;
 
   const grouped = new Map<string, HistoricalSnapshot[]>();
@@ -128,7 +128,19 @@ export function applyHistory(trend: Trend, history: HistoricalSnapshot[], now = 
   }
 
   const confidence = Math.min(97, trend.confidence + Math.min(12, historyPoints * 2));
-  return { ...trend, phase, growth, mentions, score, historyPoints, confidence };
+  const firstSeenTimes = [trend.firstSeenAt, ...history.map((point) => point.observedAt)]
+    .map((value) => new Date(value ?? "").getTime())
+    .filter(Number.isFinite);
+  const firstSeenTime = firstSeenTimes.length ? Math.min(...firstSeenTimes) : now;
+  const firstSeenMinutes = Math.max(0, Math.round((now - firstSeenTime) / 60_000));
+  const firstSeen = firstSeenMinutes < 2
+    ? "just now"
+    : firstSeenMinutes < 60
+      ? `${firstSeenMinutes}m ago`
+      : firstSeenMinutes < 1440
+        ? `${Math.floor(firstSeenMinutes / 60)}h ${firstSeenMinutes % 60}m ago`
+        : `${Math.floor(firstSeenMinutes / 1440)}d ago`;
+  return { ...trend, phase, growth, mentions, score, historyPoints, confidence, firstSeen, firstSeenAt: new Date(firstSeenTime).toISOString() };
 }
 
 export async function persistPayload(db: Sql, payload: TrendsPayload) {

@@ -44,6 +44,7 @@ export type Trend = {
   sources: Record<string, number>;
   platforms: Record<string, PlatformMetric>;
   firstSeen: string;
+  firstSeenAt?: string;
   geography: string;
   forecast: string;
   forecastTime: string;

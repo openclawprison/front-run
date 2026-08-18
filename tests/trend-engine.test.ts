@@ -40,7 +40,7 @@ const feed = rss([
 ]);
 
 const kymEntriesHtml = `<a class="item" data-title="Bicep Trend" href="/memes/bicep-trend"><h3>Bicep Trend</h3></a>`;
-const kymTrendingHtml = `<article data-title="Cursed Pam Beesly Meme" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/cursed-pam" class="newsfeed-title">Cursed Pam Beesly Meme</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A reaction image is spreading.</p></div></article>`;
+const kymTrendingHtml = `<article data-title="Cursed Pam Beesly Meme" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/cursed-pam" class="newsfeed-title">Cursed Pam Beesly Meme</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A reaction image is spreading.</p></div></article><article data-title="Top 25 Memes of the Decade" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/top-memes" class="newsfeed-title">Top 25 Memes of the Decade</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A generic historical roundup.</p></div></article>`;
 const kymUpdatedHtml = `<article data-title="Corn Dog Cat Meme Returns" data-type="Editorial"><a href="/memes/corn-dog-cat" class="newsfeed-title">Corn Dog Cat Meme Returns</a><a class="newsfeed-stamp">Updated</a><small class="text-muted"><em></em></small><div><p>An older meme is resurging.</p></div></article>`;
 const kymResearchingHtml = `<article data-title="Three Layer Dip Stack" data-type="Editorial"><a href="/memes/three-layer-dip-stack" class="newsfeed-title">Three Layer Dip Stack</a><a class="newsfeed-stamp">Researching</a><small class="text-muted"><em></em></small><div><p>A new format is being documented.</p></div></article>`;
 
@@ -105,6 +105,8 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.equal(government.category, "News");
   assert.equal(animal.title, "Brown Bear Trail Attack");
   assert.ok(payload.trends.every((trend) => trend.title.length <= 42 && trend.title.split(/\s+/).length <= 5));
+  assert.ok(payload.trends.every((trend) => !/top 25 memes|memes of the decade/i.test(trend.title)));
+  assert.ok(payload.trends.every((trend) => trend.firstSeenAt && Number.isFinite(new Date(trend.firstSeenAt).getTime())));
   assert.ok(animal.summary.length > 20);
   assert.equal(animal.platforms.x.windows["24h"], 240);
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
