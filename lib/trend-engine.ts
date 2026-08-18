@@ -189,7 +189,8 @@ async function collectGoogleNews(): Promise<CollectorResult> {
         if (!isUsefulTitle(title) || isLowSignalMemeCollection(title) || seen.has(key)) return;
         const outlet = split > 0 ? rawTitle.slice(split + 3) : "Publisher";
         if (/^(facebook\.com|instagram|youtube|tiktok)$/i.test(outlet.trim())) return;
-        if (feed.label === "Meme watch" && !/\b(meme|memes|trend|viral|reaction image|image macro|format|template|redraw)\b/i.test(title)) return;
+        const memeDiscovery = feed.label === "Meme watch" || feed.label === "Know Your Meme coverage";
+        if (memeDiscovery && !isSpecificMemeHeadline(title)) return;
         if (feed.label === "Know Your Meme coverage" && !/know your meme/i.test(outlet)) return;
         const zooDiscovery = feed.label === "Zoo arrivals" || feed.label === "Famous US zoos" || feed.label === "More US zoos" || feed.label === "Moo Deng and Asian zoos";
         if (zooDiscovery && !/\b(animal|wildlife|baby|newborn|born|birth|hatch|hatched|chick|cub|calf|rescue|rescued|arrival|arrives|species|hippo|gorilla|monkey|ape|giraffe|elephant|panda|bear|cat|dog|bird|penguin|otter|capybara|rhino|tiger|lion|leopard|fox|wolf|whale|dolphin|porpoise|seal|turtle|snake|lizard|frog|kagu)\b/i.test(title)) return;
@@ -277,6 +278,32 @@ function kymNewEntries(html: string, observedAt: number): Candidate[] {
   return items;
 }
 
+function kymReaderNewEntries(markdown: string, observedAt: number): Candidate[] {
+  const items: Candidate[] = [];
+  const entries = markdown.matchAll(/### \[([^\n[]+?)\s+!\[[\s\S]*?\]\((https?:\/\/(?:www\.)?knowyourmeme\.com\/memes\/[a-z0-9][^)\s"]*)\)/gi);
+  for (const match of entries) {
+    const title = decodeXml(match[1]).replace(/\s+/g, " ").trim();
+    if (!isUsefulTitle(title) || isPromotionalMemeEntry(title)) continue;
+    const rank = items.length + 1;
+    items.push({
+      id: `kym-new-${slug(title)}`,
+      title,
+      url: publicKymUrl(match[2]),
+      source: "kym",
+      sourceLabel: "Know Your Meme · New entry",
+      publishedAt: new Date(observedAt - (rank - 1) * 5 * 60_000).toISOString(),
+      activity: Math.max(1, 22 - rank),
+      strength: clamp(78 - (rank - 1) * 1.25, 56, 78),
+      detail: `Fresh encyclopedia entry · newest rank #${rank} at detection`,
+      geography: "US internet culture",
+      categoryHint: { category: "Memes", subcategory: "New entries" },
+      extraEvidence: [memeXSearchEvidence(title)],
+    });
+    if (items.length >= 18) break;
+  }
+  return items;
+}
+
 function kymEditorials(html: string, subcategory: "Trending" | "New entries" | "Resurgences", observedAt: number, limit: number): Candidate[] {
   const items: Candidate[] = [];
   const articles = html.matchAll(/<article\s+data-title=(['"])([\s\S]*?)\1[^>]*>([\s\S]*?)<\/article>/gi);
@@ -310,34 +337,69 @@ function kymEditorials(html: string, subcategory: "Trending" | "New entries" | "
   return items;
 }
 
+function kymReaderEditorials(markdown: string, subcategory: "Trending" | "New entries" | "Resurgences", observedAt: number, limit: number): Candidate[] {
+  const items: Candidate[] = [];
+  const articles = markdown.matchAll(/#### \[([^\]\n]+)\]\((https?:\/\/[^)\s"]+)(?:\s+"[^"]*")?\)\s*\r?\n+\s*_([^_\n]+)_\s*\r?\n+([\s\S]*?)(?=\r?\n\* \* \*|\r?\n#### |\r?\n## |$)/gi);
+  for (const match of articles) {
+    const title = decodeXml(match[1]).replace(/\s+/g, " ").trim();
+    if (!isUsefulTitle(title)) continue;
+    const rank = items.length + 1;
+    const summary = decodeXml(match[4]
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[*_#]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim());
+    items.push({
+      id: `kym-${slug(subcategory)}-${slug(title)}`,
+      title,
+      url: publicKymUrl(match[2]),
+      source: "kym",
+      sourceLabel: `Know Your Meme · ${subcategory}`,
+      publishedAt: kymDate(match[3], observedAt - (rank - 1) * 15 * 60_000),
+      activity: Math.max(1, 18 - rank),
+      strength: clamp((subcategory === "Trending" ? 84 : 77) - (rank - 1) * 1.3, 58, 84),
+      detail: `KYM ${subcategory.toLowerCase()} surface${summary ? ` · ${summary.slice(0, 120)}` : ""}`,
+      geography: "US internet culture",
+      categoryHint: { category: "Memes", subcategory },
+      extraEvidence: [memeXSearchEvidence(title)],
+    });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
 async function collectKnowYourMeme(): Promise<CollectorResult> {
   const observedAt = Date.now();
   const surfaces = [
-    { urls: ["https://knowyourmeme.com/categories/meme?sort=newest&status=all", "https://origin.knowyourmeme.com/categories/meme?sort=newest&status=all"], kind: "entries" as const },
-    { urls: ["https://trending.knowyourmeme.com/newsfeed/trending", "https://origin.knowyourmeme.com/newsfeed/trending"], kind: "editorial" as const, subcategory: "Trending" as const, limit: 8 },
-    { urls: ["https://trending.knowyourmeme.com/newsfeed/updated", "https://origin.knowyourmeme.com/newsfeed/updated"], kind: "editorial" as const, subcategory: "Resurgences" as const, limit: 6 },
-    { urls: ["https://trending.knowyourmeme.com/newsfeed/researching", "https://origin.knowyourmeme.com/newsfeed/researching"], kind: "editorial" as const, subcategory: "New entries" as const, limit: 6 },
+    { urls: ["https://knowyourmeme.com/categories/meme?sort=newest&status=all", "https://origin.knowyourmeme.com/categories/meme?sort=newest&status=all"], readerUrl: "https://r.jina.ai/http://knowyourmeme.com/categories/meme?sort=newest&status=all", kind: "entries" as const },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/trending", "https://origin.knowyourmeme.com/newsfeed/trending"], readerUrl: "https://r.jina.ai/http://trending.knowyourmeme.com/newsfeed/trending", kind: "editorial" as const, subcategory: "Trending" as const, limit: 8 },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/updated", "https://origin.knowyourmeme.com/newsfeed/updated"], readerUrl: "https://r.jina.ai/http://trending.knowyourmeme.com/newsfeed/updated", kind: "editorial" as const, subcategory: "Resurgences" as const, limit: 6 },
+    { urls: ["https://trending.knowyourmeme.com/newsfeed/researching", "https://origin.knowyourmeme.com/newsfeed/researching"], readerUrl: "https://r.jina.ai/http://trending.knowyourmeme.com/newsfeed/researching", kind: "editorial" as const, subcategory: "New entries" as const, limit: 6 },
   ];
-  const fetchSurface = async (urls: string[]) => {
+  const fetchSurface = async (surface: (typeof surfaces)[number]) => {
     let lastError: unknown;
-    for (const url of urls) {
+    for (const url of surface.urls) {
       try {
-        return await fetchText(url, { headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 (compatible; FrontRun/1.0; +https://front-run.onrender.com/)" } }, 18_000);
+        return { content: await fetchText(url, { headers: { Accept: "text/html", "User-Agent": "Mozilla/5.0 (compatible; FrontRun/1.0; +https://front-run.onrender.com/)" } }, 10_000), viaReader: false };
       } catch (error) {
         lastError = error;
       }
     }
-    throw lastError ?? new Error("KYM surface unavailable");
+    try {
+      return { content: await fetchText(surface.readerUrl, { headers: { Accept: "text/plain", "User-Agent": "FrontRun/1.0" } }, 24_000), viaReader: true };
+    } catch (error) {
+      throw error ?? lastError ?? new Error("KYM surface unavailable");
+    }
   };
-  const results = await Promise.allSettled(surfaces.map((surface) => fetchSurface(surface.urls)));
+  const results = await Promise.allSettled(surfaces.map((surface) => fetchSurface(surface)));
   const seen = new Set<string>();
   const items: Candidate[] = [];
   results.forEach((result, index) => {
     if (result.status !== "fulfilled") return;
     const surface = surfaces[index];
     const candidates = surface.kind === "entries"
-      ? kymNewEntries(result.value, observedAt)
-      : kymEditorials(result.value, surface.subcategory, observedAt, surface.limit);
+      ? result.value.viaReader ? kymReaderNewEntries(result.value.content, observedAt) : kymNewEntries(result.value.content, observedAt)
+      : result.value.viaReader ? kymReaderEditorials(result.value.content, surface.subcategory, observedAt, surface.limit) : kymEditorials(result.value.content, surface.subcategory, observedAt, surface.limit);
     for (const candidate of candidates) {
       const key = normalize(candidate.title);
       if (seen.has(key)) continue;
@@ -376,13 +438,14 @@ async function collectKnowYourMeme(): Promise<CollectorResult> {
   const trendingCount = items.filter((item) => item.categoryHint?.subcategory === "Trending").length;
   const resurgenceCount = items.filter((item) => item.categoryHint?.subcategory === "Resurgences").length;
   const liveSurfaces = results.filter((result) => result.status === "fulfilled").length;
+  const readerSurfaces = results.filter((result) => result.status === "fulfilled" && result.value.viaReader).length;
   return {
     items,
     status: {
       key: "kym",
       label: "Know Your Meme",
       state: items.length ? "live" : "error",
-      detail: items.length ? `${newCount} fresh/researching · ${trendingCount} trending · ${resurgenceCount} updated · ${liveSurfaces}/4 direct surfaces live` : "KYM direct and indexed surfaces did not respond",
+      detail: items.length ? `${newCount} fresh/researching · ${trendingCount} trending · ${resurgenceCount} updated · ${liveSurfaces}/4 surfaces live${readerSurfaces ? ` · ${readerSurfaces} via reader fallback` : ""}` : "KYM direct, reader and indexed surfaces did not respond",
       itemCount: items.length,
     },
   };
@@ -1034,13 +1097,25 @@ function isLowSignalMemeCollection(title: string) {
     || /(?:^|\b)\d+\s+(?:(?:hilarious|funny|stunning|bizarre|confusing|wholesome|random|relatable|iconic|classic|wild|internet)\s+){0,3}memes?\b/i.test(normalized)
     || /\bmemes?\s+(?:of|from)\s+(?:the\s+)?(?:day|week|month|year|decade|2010s|2020s|internet)\b/i.test(normalized)
     || /\b(?:daily|weekly|monthly)\s+memes?\b|\b(?:meme roundup|meme dump|meme compilation|meme collection|collection of memes|meme list|memes to make you|memes that will)\b/i.test(normalized)
-    || /\b(?:these|here are|enjoy)\s+(?:the\s+)?(?:\d+\s+)?memes?\b/i.test(normalized);
+    || /\b(?:these|here are|enjoy)\s+(?:the\s+|a\s+)?(?:\d+\s+)?memes?\b/i.test(normalized);
 }
 
 function isPromotionalMemeEntry(title: string) {
   return /\b(?:app|web|website|software|react native|mobile) development (?:agency|agencies|company|companies|services?)\b/i.test(title)
     || /\b(?:advertising|marketing|seo|casino|betting|loan|insurance|essay|assignment|homework) (?:agency|agencies|company|companies|services?)\b/i.test(title)
     || /\b(?:buy|download)\s+(?:followers|likes|views|apk|software)\b/i.test(title);
+}
+
+function isSpecificMemeHeadline(title: string) {
+  const normalized = normalize(title);
+  if (normalized === "meme" || normalized === "memes" || isLowSignalMemeCollection(title) || isPromotionalMemeEntry(title)) return false;
+  if (/\b(?:meme ?coin|memecoin|meme stock|stock price|price prediction|crypto(?:currency)?|token|lawsuit|shares?)\b/i.test(title)) return false;
+  return /\b(?:what|who)\s+is\b[\s\S]*\b(?:meme|trend|format|catchphrase)\b/i.test(title)
+    || /\b(?:meme|trend|format|template|catchphrase)\b[\s\S]*\b(?:explained|origin|meaning|takes over|goes viral|going viral|spreads?|resurfaces?|revival)\b/i.test(title)
+    || /\b(?:meme|trend)\s+(?:returns?|resurfaces?)\b/i.test(title)
+    || /\b(?:becomes?|became|turns?|turned)\s+into\s+(?:a\s+)?(?:viral\s+)?meme\b/i.test(title)
+    || /\bviral\s+(?:meme|trend|format|reaction)\b/i.test(title)
+    || /\b(?:reaction image|image macro|meme format|meme template|redraw trend)\b/i.test(title);
 }
 
 function compactTrendTitle(value: string) {
@@ -1293,7 +1368,11 @@ const MEME_TREND_LIMIT = 24;
 
 function clusterCandidates(items: Candidate[]) {
   const clusters: Candidate[][] = [];
-  for (const item of [...items].sort((a, b) => b.strength - a.strength)) {
+  const filteredItems = items.filter((item) => {
+    const category = item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0];
+    return category !== "Memes" || item.source === "kym" || isSpecificMemeHeadline(item.title);
+  });
+  for (const item of [...filteredItems].sort((a, b) => b.strength - a.strength)) {
     const existing = clusters.find((cluster) => cluster.some((candidate) => similar(candidate.title, item.title)));
     if (existing) existing.push(item);
     else clusters.push([item]);

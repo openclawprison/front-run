@@ -40,10 +40,10 @@ const feed = rss([
   { title: officialTitle, link: "https://news.example/government", source: "State News", traffic: "3K+" },
 ]);
 
-const kymEntriesHtml = `<a class="item" data-title="Top Marketing React Native App Development Companies" href="/memes/promotional-spam"><h3>Spam</h3></a><a class="item" data-title="Bicep Trend" href="/memes/bicep-trend"><h3>Bicep Trend</h3></a>`;
-const kymTrendingHtml = `<article data-title="Cursed Pam Beesly Meme" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/cursed-pam" class="newsfeed-title">Cursed Pam Beesly Meme</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A reaction image is spreading.</p></div></article><article data-title="Top 25 Memes of the Decade" data-type="Editorial"><a href="https://trending.knowyourmeme.com/editorials/top-memes" class="newsfeed-title">Top 25 Memes of the Decade</a><a class="newsfeed-stamp">Trending</a><small class="text-muted"><em></em></small><div><p>A generic historical roundup.</p></div></article>`;
-const kymUpdatedHtml = `<article data-title="Corn Dog Cat Meme Returns" data-type="Editorial"><a href="/memes/corn-dog-cat" class="newsfeed-title">Corn Dog Cat Meme Returns</a><a class="newsfeed-stamp">Updated</a><small class="text-muted"><em></em></small><div><p>An older meme is resurging.</p></div></article>`;
-const kymResearchingHtml = `<article data-title="Three Layer Dip Stack" data-type="Editorial"><a href="/memes/three-layer-dip-stack" class="newsfeed-title">Three Layer Dip Stack</a><a class="newsfeed-stamp">Researching</a><small class="text-muted"><em></em></small><div><p>A new format is being documented.</p></div></article>`;
+const kymEntriesMarkdown = `### [Top Marketing React Native App Development Companies ![Image](https://i.kym-cdn.com/spam.png) ★ ### Spam](http://knowyourmeme.com/memes/promotional-spam)\n### [Bicep Trend ![Image](https://i.kym-cdn.com/bicep.png) ★ ### Bicep Trend](http://knowyourmeme.com/memes/bicep-trend)`;
+const kymTrendingMarkdown = `#### [Cursed Pam Beesly Meme](https://trending.knowyourmeme.com/editorials/cursed-pam "Cursed Pam Beesly Meme")\n\n_August 18th, 2026 10:15 AM_\nA reaction image is spreading.\n\n* * *\n\n#### [Top 25 Memes of the Decade](https://trending.knowyourmeme.com/editorials/top-memes "Top 25 Memes of the Decade")\n\n_August 17th, 2026 10:15 AM_\nA generic historical roundup.`;
+const kymUpdatedMarkdown = `#### [Corn Dog Cat Meme Returns](http://knowyourmeme.com/memes/corn-dog-cat "Corn Dog Cat Meme Returns")\n\n_August 18th, 2026 9:15 AM_\nAn older meme is resurging.`;
+const kymResearchingMarkdown = `#### [Three Layer Dip Stack](http://knowyourmeme.com/memes/three-layer-dip-stack "Three Layer Dip Stack")\n\n_August 18th, 2026 8:15 AM_\nA new format is being documented.`;
 
 process.env.TWITTERAPI_IO_KEY = "test-key";
 process.env.TWITTERAPI_MONTHLY_BUDGET_USD = "5";
@@ -58,10 +58,12 @@ delete process.env.BRIGHTDATA_API_TOKEN;
 
 globalThis.fetch = (async (input: string | URL | Request) => {
   const url = String(input);
-  if (/https:\/\/(?:origin\.)?knowyourmeme\.com\/categories\/meme/.test(url)) return new Response(kymEntriesHtml, { status: 200 });
-  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/trending/.test(url)) return new Response(kymTrendingHtml, { status: 200 });
-  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/updated/.test(url)) return new Response(kymUpdatedHtml, { status: 200 });
-  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/researching/.test(url)) return new Response(kymResearchingHtml, { status: 200 });
+  if (/https:\/\/(?:origin\.)?knowyourmeme\.com\/categories\/meme/.test(url)) return new Response("blocked", { status: 503 });
+  if (/https:\/\/(?:origin|trending)\.knowyourmeme\.com\/newsfeed\/(?:trending|updated|researching)/.test(url)) return new Response("blocked", { status: 503 });
+  if (url.startsWith("https://r.jina.ai/http://knowyourmeme.com/categories/meme")) return new Response(kymEntriesMarkdown, { status: 200 });
+  if (url.endsWith("/newsfeed/trending")) return new Response(kymTrendingMarkdown, { status: 200 });
+  if (url.endsWith("/newsfeed/updated")) return new Response(kymUpdatedMarkdown, { status: 200 });
+  if (url.endsWith("/newsfeed/researching")) return new Response(kymResearchingMarkdown, { status: 200 });
   if (url.includes("trends.google.com/trending/rss")) return new Response(feed, { status: 200 });
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
   if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org|houstonzoo\.org|blog\.zoo\.org|zooatlanta\.org|denverzoo\.org|lpzoo\.org|phoenixzoo\.org/.test(url)) return new Response(feed, { status: 200 });
@@ -123,6 +125,7 @@ test("discovers category-specific news and enriches selected stories with budget
   assert.ok(payload.trends.some((trend) => trend.category === "Memes" && trend.subcategory === "New entries"));
   assert.ok(payload.trends.every((trend) => !/marketing react native app development/i.test(trend.title)));
   assert.equal(payload.sources.find((source) => source.key === "kym")?.state, "live");
+  assert.match(payload.sources.find((source) => source.key === "kym")?.detail ?? "", /reader fallback/);
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /live sample/);
   assert.equal(recordedBillablePosts, observedXQueries.length);
   assert.equal(recordedQueryCount, observedXQueries.length);
