@@ -50,11 +50,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22.13.0
-      - key: FRONT_RUN_HOSTPORT
+      - key: FRONT_RUN_URL
         fromService:
           type: web
           name: front-run
-          property: hostport
+          envVarKey: RENDER_EXTERNAL_URL
       - key: INGEST_SECRET
         fromService:
           type: web
