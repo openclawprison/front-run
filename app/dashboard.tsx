@@ -51,6 +51,16 @@ const firstSeenValue = (trend: Trend, fallback: number) => {
   return fallback - (days * 1440 + hours * 60 + minutes) * 60_000;
 };
 
+const relativeAge = (timestamp: string | undefined, now: number) => {
+  const value = new Date(timestamp ?? "").getTime();
+  if (!Number.isFinite(value)) return "unknown";
+  const minutes = Math.max(0, Math.round((now - value) / 60_000));
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ${minutes % 60}m ago`;
+  return `${Math.floor(minutes / 1440)}d ago`;
+};
+
 const categoryIcons = { Memes: Laugh, Animals: PawPrint, Technology: Cpu, News: Newspaper, "Viral events": Zap, "Internet culture": Sparkles, Entertainment: CircleDot, Sports: Activity, "Food & drink": Waves };
 const categories = [
   { name: "All trends", icon: LayoutGrid, subs: [] as string[] },
@@ -110,7 +120,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
   const [expandedCategory, setExpandedCategory] = useState<string | null>("Animals");
   const [query, setQuery] = useState("");
   const [acceleratingOnly, setAcceleratingOnly] = useState(false);
-  const [sortMode, setSortMode] = useState<SortMode>("viral");
+  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [selectedTrend, setSelectedTrend] = useState<Trend | null>(null);
   const [watching, setWatching] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(!initialPayload);
@@ -283,7 +293,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
           <section className="control-rail" aria-label="Trend time window">
             <div className="time-tabs">{timeWindows.map((window) => <button key={window.key} className={activeWindow === window.key ? "is-active" : ""} onClick={() => setActiveWindow(window.key)}>{window.label}</button>)}</div>
             <div className="rail-actions">
-              <label className="sort-control"><span>Sort</span><select aria-label="Sort trends" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}><option value="viral">Viral score</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select><ChevronDown size={13} /></label>
+              <label className="sort-control"><span>Sort</span><select aria-label="Sort trends" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)}><option value="newest">Newest detected</option><option value="viral">Viral score</option><option value="oldest">Oldest detected</option></select><ChevronDown size={13} /></label>
               <label className="switch-control"><input type="checkbox" checked={acceleratingOnly} onChange={(event) => setAcceleratingOnly(event.target.checked)} /><span className="switch-track" />Rising only</label>
             </div>
           </section>
@@ -325,7 +335,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
               <div className="trend-list">
                 {visibleTrends.map((trend, index) => (
                   <button className="trend-row" key={trend.id} onClick={() => setSelectedTrend(trend)}>
-                    <div className="trend-identity"><span className="trend-rank">{String(index + 1).padStart(2, "0")}</span><div className={`trend-mark tone-${trend.tone}`}>{trend.mark}</div><div><strong>{trend.title}</strong><span>{trend.category} / {trend.subcategory} · {trend.evidence.length} links · first seen {trend.firstSeen}</span></div></div>
+                    <div className="trend-identity"><span className="trend-rank">{String(index + 1).padStart(2, "0")}</span><div className={`trend-mark tone-${trend.tone}`}>{trend.mark}</div><div><strong>{trend.title}</strong><span>{trend.category} / {trend.subcategory} · {trend.evidence.length} links · detected {trend.firstSeen} · source {relativeAge(trend.latestSourceAt, clock)}</span></div></div>
                     <div className="momentum-cell"><SparkBars values={trend.spark} phase={trend.phase} /><PhasePill phase={trend.phase} /></div>
                     <div className="volume-cell"><strong>{platformActivityLabel(trend, activeWindow)}</strong><span className={trend.growth[activeWindow] >= 0 ? "positive" : "negative"}>{trend.growth[activeWindow] >= 0 ? "+" : ""}{trend.growth[activeWindow]}%</span></div>
                     <ScoreRing value={trend.score[activeWindow]} compact /><span className="row-arrow"><ChevronRight size={17} /></span>
@@ -384,7 +394,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
             <div className="drawer-header"><div className="drawer-brand"><Telescope size={16} /> Front Run analysis</div><button className="icon-button" onClick={() => setSelectedTrend(null)} aria-label="Close"><X size={19} /></button></div>
             <div className="drawer-content">
               <div className="drawer-title-row"><div className={`trend-mark large tone-${selectedTrend.tone}`}>{selectedTrend.mark}</div><div><span>{selectedTrend.category} · {selectedTrend.subcategory}</span><h2>{selectedTrend.title}</h2></div></div>
-              <div className="drawer-status-row"><PhasePill phase={selectedTrend.phase} /><span>First seen {selectedTrend.firstSeen}</span><span>{selectedTrend.geography}</span></div>
+              <div className="drawer-status-row"><PhasePill phase={selectedTrend.phase} /><span>First detected {selectedTrend.firstSeen}</span><span>Latest source {relativeAge(selectedTrend.latestSourceAt, clock)}</span><span>{selectedTrend.geography}</span></div>
               <section className="drawer-score-card"><div><span>Viral score · {activeWindow}</span><ScoreRing value={selectedTrend.score[activeWindow]} /></div><div className="drawer-score-copy"><span>Summary</span><p className="drawer-summary-copy">{selectedTrend.summary}</p></div></section>
               <section className="trajectory-section">
                 <div className="drawer-section-head"><div><span>Trajectory</span><h3>Momentum is {selectedTrend.phase.toLowerCase()}</h3></div><strong className={selectedTrend.growth[activeWindow] >= 0 ? "positive" : "negative"}>{selectedTrend.growth[activeWindow] >= 0 ? "+" : ""}{selectedTrend.growth[activeWindow]}%</strong></div>

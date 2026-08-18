@@ -46,6 +46,7 @@ export type Trend = {
   platforms: Record<string, PlatformMetric>;
   firstSeen: string;
   firstSeenAt?: string;
+  latestSourceAt?: string;
   geography: string;
   forecast: string;
   forecastTime: string;
@@ -109,6 +110,7 @@ export type TrendCategorySummary = {
 
 export type TrendsPayload = {
   product: "Front Run";
+  firstSeenMode?: "detected";
   refreshedAt: string;
   nextRefreshAt: string;
   analysisMode: "openai" | "heuristic";

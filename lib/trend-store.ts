@@ -132,7 +132,7 @@ export async function getRecentHistory(db: Sql): Promise<Map<string, HistoricalS
   return grouped;
 }
 
-export function applyHistory(trend: Trend, history: HistoricalSnapshot[], now = Date.now()): Trend {
+export function applyHistory(trend: Trend, history: HistoricalSnapshot[], now = Date.now(), previousFirstSeenAt?: string): Trend {
   const windows: Record<TimeWindow, number> = { "5m": 5, "30m": 30, "60m": 60, "6h": 360, "24h": 1440 };
   const growth = {} as WindowValues;
   const mentions = {} as WindowValues;
@@ -167,7 +167,7 @@ export function applyHistory(trend: Trend, history: HistoricalSnapshot[], now = 
   }
 
   const confidence = Math.min(97, trend.confidence + Math.min(12, historyPoints * 2));
-  const firstSeenTimes = [trend.firstSeenAt, ...history.map((point) => point.observedAt)]
+  const firstSeenTimes = [trend.firstSeenAt, previousFirstSeenAt, ...history.map((point) => point.observedAt)]
     .map((value) => new Date(value ?? "").getTime())
     .filter(Number.isFinite);
   const firstSeenTime = firstSeenTimes.length ? Math.min(...firstSeenTimes) : now;

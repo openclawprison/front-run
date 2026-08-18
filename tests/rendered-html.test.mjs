@@ -24,7 +24,9 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /Pump\.fun attention radar/);
   assert.match(dashboard, /Not an endorsement/);
   assert.match(dashboard, /TREND_TAXONOMY/);
-  assert.match(dashboard, /Newest first/);
+  assert.match(dashboard, /Newest detected/);
+  assert.match(dashboard, /useState<SortMode>\("newest"\)/);
+  assert.match(dashboard, /Latest source/);
   assert.match(dashboard, /firstSeenAt/);
   assert.match(dashboard, /initialPayload \? new Date\(initialPayload\.refreshedAt\)\.getTime\(\) : 0/);
   assert.doesNotMatch(dashboard, /useState\(\(\) => Date\.now\(\)\)/);
@@ -43,6 +45,8 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /category === "Memes"/);
   assert.match(engine, /MEME_TREND_RESERVE = 18/);
   assert.match(engine, /isLowSignalMemeCollection/);
+  assert.match(engine, /isPromotionalMemeEntry/);
+  assert.match(engine, /firstSeenMode: "detected"/);
   assert.match(engine, /National Wildlife Federation/);
   assert.match(engine, /Khao Kheow Open Zoo/);
   assert.match(engine, /Houston Zoo/);

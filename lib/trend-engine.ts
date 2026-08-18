@@ -256,7 +256,7 @@ function kymNewEntries(html: string, observedAt: number): Candidate[] {
   for (const match of anchors) {
     const title = htmlAttribute(match[1], "data-title");
     const href = htmlAttribute(match[1], "href");
-    if (!isUsefulTitle(title) || !/^\/memes\/[a-z0-9]/i.test(href)) continue;
+    if (!isUsefulTitle(title) || !/^\/memes\/[a-z0-9]/i.test(href) || isPromotionalMemeEntry(title)) continue;
     const rank = items.length + 1;
     items.push({
       id: `kym-new-${slug(title)}`,
@@ -1037,6 +1037,12 @@ function isLowSignalMemeCollection(title: string) {
     || /\b(?:these|here are|enjoy)\s+(?:the\s+)?(?:\d+\s+)?memes?\b/i.test(normalized);
 }
 
+function isPromotionalMemeEntry(title: string) {
+  return /\b(?:app|web|website|software|react native|mobile) development (?:agency|agencies|company|companies|services?)\b/i.test(title)
+    || /\b(?:advertising|marketing|seo|casino|betting|loan|insurance|essay|assignment|homework) (?:agency|agencies|company|companies|services?)\b/i.test(title)
+    || /\b(?:buy|download)\s+(?:followers|likes|views|apk|software)\b/i.test(title);
+}
+
 function compactTrendTitle(value: string) {
   let words = value.split(/\s+/).filter(Boolean);
   if (words.length > 5) words = words.slice(0, 5);
@@ -1196,12 +1202,13 @@ function sourcePriorityWeight(source: SourceKey) {
 }
 
 function buildTrend(cluster: Candidate[]): Trend {
+  const detectedAt = new Date().toISOString();
   const leader = [...cluster].sort((a, b) => b.strength * sourcePriorityWeight(b.source) - a.strength * sourcePriorityWeight(a.source))[0];
   const classificationText = cluster.map((item) => `${item.title} ${item.relatedNews?.title ?? ""}`).join(" ");
   const categoryHint = [...cluster].sort((a, b) => b.strength - a.strength).find((item) => item.categoryHint)?.categoryHint;
   const [category, subcategory] = categoryHint ? [categoryHint.category, categoryHint.subcategory] : categoryFor(classificationText, cluster.some((item) => item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews)));
-  const firstDate = cluster.reduce((earliest, item) => new Date(item.publishedAt).getTime() < new Date(earliest).getTime() ? item.publishedAt : earliest, leader.publishedAt);
-  const ageMinutes = Math.max(1, (Date.now() - new Date(firstDate).getTime()) / 60_000);
+  const latestSourceAt = cluster.reduce((latest, item) => new Date(item.publishedAt).getTime() > new Date(latest).getTime() ? item.publishedAt : latest, leader.publishedAt);
+  const ageMinutes = Math.max(1, (Date.now() - new Date(latestSourceAt).getTime()) / 60_000);
   const activity = Math.round(cluster.reduce((sum, item) => sum + item.activity, 0));
   const diversity = new Set(cluster.map((item) => item.source === "publisher" || item.source === "news" ? `${item.source}:${item.sourceLabel}` : item.source)).size;
   const usObservationCount = cluster.filter((item) => item.geography.startsWith("US")).length;
@@ -1253,8 +1260,9 @@ function buildTrend(cluster: Candidate[]): Trend {
     spark: Array.from({ length: 12 }, (_, index) => clamp(Math.round(baseScore * (0.46 + index * 0.045) - Math.max(0, saturation - 75) * index * 0.08), 8, 99)),
     sources,
     platforms,
-    firstSeen: ageLabel(firstDate),
-    firstSeenAt: new Date(firstDate).toISOString(),
+    firstSeen: "just now",
+    firstSeenAt: detectedAt,
+    latestSourceAt: new Date(latestSourceAt).toISOString(),
     geography: [...new Set(cluster.map((item) => item.geography))].slice(0, 3).join(" · "),
     forecast,
     forecastTime,
@@ -1271,7 +1279,7 @@ function buildTrend(cluster: Candidate[]): Trend {
     activity,
     historyPoints: 0,
     evidence: [...new Map(cluster.flatMap((item) => [
-      { source: item.sourceLabel, title: item.title, url: item.url, detail: item.detail },
+      { source: item.sourceLabel, title: item.title, url: item.url, detail: `${item.detail} · source ${ageLabel(item.publishedAt)}` },
       ...(item.extraEvidence ?? []),
     ]).map((item) => [item.url, item])).values()].slice(0, 10),
   };
@@ -1303,8 +1311,17 @@ function clusterCandidates(items: Candidate[]) {
     balancedAnimals.set(trend.id, trend);
   }
   const balancedMemes = new Map<string, Trend>();
+  const freshMemeCutoff = Date.now() - 24 * 60 * 60_000;
+  const freshMemes = ranked.filter((candidate) => candidate.category === "Memes" && new Date(candidate.latestSourceAt ?? 0).getTime() >= freshMemeCutoff);
   for (const subcategory of ["Trending", "New entries", "Resurgences", "Formats"]) {
-    for (const trend of ranked.filter((candidate) => candidate.category === "Memes" && candidate.subcategory === subcategory).slice(0, 4)) balancedMemes.set(trend.id, trend);
+    for (const trend of freshMemes.filter((candidate) => candidate.subcategory === subcategory).slice(0, 4)) balancedMemes.set(trend.id, trend);
+  }
+  for (const trend of freshMemes) {
+    if (balancedMemes.size >= MEME_TREND_RESERVE) break;
+    balancedMemes.set(trend.id, trend);
+  }
+  for (const subcategory of ["Trending", "New entries", "Resurgences", "Formats"]) {
+    for (const trend of ranked.filter((candidate) => candidate.category === "Memes" && candidate.subcategory === subcategory).slice(0, 2)) balancedMemes.set(trend.id, trend);
   }
   for (const trend of ranked.filter((candidate) => candidate.category === "Memes")) {
     if (balancedMemes.size >= MEME_TREND_RESERVE) break;
@@ -1413,7 +1430,10 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
   const clustered = clusterCandidates(allItems);
   const model = await enrichWithOpenAI(clustered);
   const now = Date.now();
-  const trends = model.trends.map((trend) => applyHistory(trend, history.get(trend.id) ?? [], now)).sort((a, b) => b.score["30m"] - a.score["30m"]);
+  const previousFirstSeen = options.previousPayload?.firstSeenMode === "detected"
+    ? new Map(options.previousPayload.trends.map((trend) => [trend.id, trend.firstSeenAt]))
+    : new Map<string, string | undefined>();
+  const trends = model.trends.map((trend) => applyHistory(trend, history.get(trend.id) ?? [], now, previousFirstSeen.get(trend.id))).sort((a, b) => b.score["30m"] - a.score["30m"]);
   const pump = await enrichPumpCoins(pumpCollector.coins, trends);
   const categories = TREND_TAXONOMY.map((category) => ({
     name: category.name,
@@ -1466,6 +1486,7 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
   const refreshedAt = new Date(now).toISOString();
   return {
     product: "Front Run",
+    firstSeenMode: "detected",
     refreshedAt,
     nextRefreshAt: new Date(now + 5 * 60_000).toISOString(),
     analysisMode: model.mode,
