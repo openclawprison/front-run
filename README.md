@@ -4,13 +4,15 @@ Front Run is a live early-signal dashboard for finding internet trends before th
 
 Front Run's main ranking tracks internet trends. A separate Pump.fun attention radar shows what that platform is surfacing and attempts to trace each listing back to X, news, or an existing Front Run narrative. Coin activity is never mixed into the main trend score and is not a recommendation to buy.
 
+Each ingestion keeps up to 75 ranked signals, reserving roughly 25 places for Animals and balancing those across cats, dogs, bears, birds, marine life, wildlife, and zoo stories.
+
 ## What is real data
 
 Front Run never invents platform counts. Each connector reports its own metric and availability:
 
 - Google Trends RSS: breakout searches and approximate search traffic
 - Google News RSS: US top stories plus dedicated Animals, Technology, and Viral searches
-- Direct publisher feeds: NPR, CBS News, The New York Times, The Verge, TechCrunch, WIRED, Mongabay, Catster, Smithsonian Science & Nature, Audubon, and the National Wildlife Federation
+- Direct publisher feeds: NPR, CBS News, The New York Times, The Verge, TechCrunch, WIRED, Mongabay, Catster, Smithsonian Science & Nature, Audubon, the National Wildlife Federation, Houston Zoo, Woodland Park Zoo, Zoo Atlanta, Denver Zoo, Lincoln Park Zoo, and Phoenix Zoo
 - Hacker News API: points and discussion activity
 - X API v2: Trends by WOEID, news-led exact post counts, and direct links to leading public posts
 - YouTube Data API: popular-video views and view velocity
@@ -27,7 +29,7 @@ TikTok values are explicitly marked as a sample because keyword discovery does n
 - Render Cron Job that calls the protected ingestion endpoint every five minutes
 - `render.yaml` Blueprint for the web service, database, health check, secret wiring, and cron schedule
 
-The public dashboard reads the latest cached payload. Collection is single-flight inside each server instance, and manual refreshes have a one-minute floor to prevent API-cost abuse.
+The public dashboard server-renders the latest stored payload, so trends remain visible during reloads and while the next collection is running. The client checks for an updated payload every five minutes. Collection is single-flight inside each server instance, and manual refreshes have a one-minute floor to prevent API-cost abuse.
 
 ## Environment variables
 

@@ -5,21 +5,24 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("ships the Front Run live dashboard and real source adapters", async () => {
-  const [page, layout, route, engine, blueprint] = await Promise.all([
+  const [page, dashboard, layout, route, engine, blueprint] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/dashboard.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("app/api/trends/route.ts", root), "utf8"),
     readFile(new URL("lib/trend-engine.ts", root), "utf8"),
     readFile(new URL("render.yaml", root), "utf8"),
   ]);
 
-  assert.match(page, /FRONT RUN/);
-  assert.match(page, /Platform counts/);
-  assert.match(page, /News coverage and leading posts/);
-  assert.match(page, /Pump\.fun attention radar/);
-  assert.match(page, /Not an endorsement/);
-  assert.match(page, /TREND_TAXONOMY/);
-  assert.doesNotMatch(page, /Polar-bear rescue edits|Preview feed active/);
+  assert.match(page, /readLatestStoredTrends/);
+  assert.match(page, /initialPayload/);
+  assert.match(dashboard, /FRONT RUN/);
+  assert.match(dashboard, /Platform counts/);
+  assert.match(dashboard, /News coverage and leading posts/);
+  assert.match(dashboard, /Pump\.fun attention radar/);
+  assert.match(dashboard, /Not an endorsement/);
+  assert.match(dashboard, /TREND_TAXONOMY/);
+  assert.doesNotMatch(dashboard, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
   assert.match(route, /readOrRefreshTrends/);
   assert.match(engine, /trends\.google\.com\/trending\/rss/);
@@ -28,6 +31,10 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /Animal watch/);
   assert.match(engine, /Technology watch/);
   assert.match(engine, /National Wildlife Federation/);
+  assert.match(engine, /Khao Kheow Open Zoo/);
+  assert.match(engine, /Houston Zoo/);
+  assert.match(engine, /balancedAnimals\.size >= 25/);
+  assert.match(engine, /selected\.size >= 75/);
   assert.match(engine, /frontend-api-v3\.pump\.fun/);
   assert.match(engine, /sourcePriorityWeight/);
   assert.match(engine, /shortTrendTitle/);

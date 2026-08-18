@@ -7,6 +7,7 @@ const end = new Date(now.getTime() - 30_000).toISOString();
 const start = new Date(now.getTime() - 90_000).toISOString();
 const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail";
 const techTitle = "Apple reveals pocket AI robot for the home";
+const sportTitle = "Chicago Cubs star Pete Crow-Armstrong hits two home runs";
 const observedXQueries: string[] = [];
 
 function flightFrame(id: string, props: Record<string, unknown>) {
@@ -33,6 +34,7 @@ function rss(items: Array<{ title: string; link: string; source: string; traffic
 const feed = rss([
   { title: animalTitle, link: "https://news.example/bear", source: "Wildlife Daily", traffic: "5K+" },
   { title: techTitle, link: "https://news.example/robot", source: "Tech Daily", traffic: "2K+" },
+  { title: sportTitle, link: "https://news.example/baseball", source: "Sports Daily", traffic: "4K+" },
 ]);
 
 process.env.X_BEARER_TOKEN = "test-token";
@@ -49,7 +51,7 @@ globalThis.fetch = (async (input: string | URL | Request) => {
   const url = String(input);
   if (url.includes("trends.google.com/trending/rss")) return new Response(feed, { status: 200 });
   if (url.includes("news.google.com/rss")) return new Response(feed, { status: 200 });
-  if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org/.test(url)) return new Response(feed, { status: 200 });
+  if (/feeds\.npr\.org|cbsnews\.com|rss\.nytimes\.com|theverge\.com|techcrunch\.com|wired\.com|mongabay\.com|catster\.com|smithsonianmag\.com|audubon\.org|blog\.nwf\.org|houstonzoo\.org|blog\.zoo\.org|zooatlanta\.org|denverzoo\.org|lpzoo\.org|phoenixzoo\.org/.test(url)) return new Response(feed, { status: 200 });
   if (url === "https://pump.fun/explore") return new Response(pumpHtml, { status: 200, headers: { "content-type": "text/html" } });
   if (url.includes("frontend-api-v3.pump.fun/coins/")) return Response.json(pumpCoin);
   if (url.endsWith("topstories.json")) return Response.json([]);
@@ -79,11 +81,14 @@ test("discovers category-specific news and enriches a story with X counts and le
   const payload = await buildTrendsPayload();
   const animal = payload.trends.find((trend) => trend.category === "Animals");
   const technology = payload.trends.find((trend) => trend.category === "Technology");
+  const baseball = payload.trends.find((trend) => trend.title.includes("Crow-Armstrong"));
 
   assert.ok(animal, "expected an animal trend");
   assert.ok(technology, "expected a technology trend");
+  assert.ok(baseball, "expected the Pete Crow-Armstrong story");
+  assert.equal(baseball.category, "Sports");
   assert.equal(animal.title, "Brown Bear Trail Attack");
-  assert.ok(animal.title.length <= 58);
+  assert.ok(payload.trends.every((trend) => trend.title.length <= 42 && trend.title.split(/\s+/).length <= 5));
   assert.ok(animal.summary.length > 20);
   assert.equal(animal.platforms.x.windows["24h"], 240);
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
@@ -97,4 +102,5 @@ test("discovers category-specific news and enriches a story with X counts and le
   assert.equal(payload.pumpCoins[0]?.xPosts?.["24h"], 240);
   assert.ok(payload.pumpCoins[0]?.evidence.some((item) => item.url === "https://x.com/meme_reporter/status/987654321"));
   assert.equal(payload.sources.find((source) => source.key === "pumpfun")?.state, "live");
+  assert.match(payload.sources.find((source) => source.key === "publisher")?.detail ?? "", /11 dedicated animal/);
 });
