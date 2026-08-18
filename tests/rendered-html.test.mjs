@@ -5,7 +5,7 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("ships the Front Run live dashboard and real source adapters", async () => {
-  const [page, dashboard, layout, route, engine, blueprint, packageJson, cronScript] = await Promise.all([
+  const [page, dashboard, layout, route, engine, blueprint, packageJson, cronScript, readme] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/dashboard.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
@@ -14,6 +14,7 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
     readFile(new URL("render.yaml", root), "utf8"),
     readFile(new URL("package.json", root), "utf8"),
     readFile(new URL("scripts/trigger-ingest.ts", root), "utf8"),
+    readFile(new URL("README.md", root), "utf8"),
   ]);
 
   assert.match(page, /readLatestStoredTrends/);
@@ -27,12 +28,14 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /Newest detected/);
   assert.match(dashboard, /useState<SortMode>\("newest"\)/);
   assert.match(dashboard, /Latest source/);
+  assert.match(dashboard, /github\.com\/openclawprison\/front-run/);
   assert.match(dashboard, /firstSeenAt/);
   assert.match(dashboard, /initialPayload \? new Date\(initialPayload\.refreshedAt\)\.getTime\(\) : 0/);
   assert.doesNotMatch(dashboard, /useState\(\(\) => Date\.now\(\)\)/);
   assert.doesNotMatch(dashboard, /Polar-bear rescue edits|Preview feed active/);
   assert.match(layout, /Front Run — Early Signal Intelligence/);
-  assert.match(route, /readOrRefreshTrends/);
+  assert.match(route, /readLatestStoredTrends/);
+  assert.doesNotMatch(route, /searchParams\.get\("refresh"\)/);
   assert.match(engine, /trends\.google\.com\/trending\/rss/);
   assert.match(engine, /api\.twitterapi\.io\/twitter\/tweet\/advanced_search/);
   assert.match(engine, /TWITTERAPI_MONTHLY_BUDGET_USD/);
@@ -69,6 +72,8 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(packageJson, /tsx scripts\/trigger-ingest\.ts/);
   assert.match(cronScript, /readOrRefreshTrends/);
   assert.match(cronScript, /if \(process\.env\.DATABASE_URL\) await ingestDirectly/);
+  assert.match(readme, /public\/front-run-og\.png/);
+  assert.match(readme, /front-run\.onrender\.com/);
 });
 
 test("includes Render, storage, environment, and preview assets", async () => {

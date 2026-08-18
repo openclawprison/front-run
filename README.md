@@ -1,117 +1,140 @@
-# Front Run
+<p align="center">
+  <img src="public/front-run-og.png" alt="Front Run — Early Signal Intelligence" width="100%" />
+</p>
 
-Front Run is a live early-signal dashboard for finding internet trends before they saturate. It ranks clustered observations across 5-minute, 30-minute, 60-minute, 6-hour, and 24-hour windows, stores each collection run in Postgres, and estimates whether a signal is igniting, accelerating, peaking, or cooling.
+<h1 align="center">Front Run</h1>
 
-Front Run's main ranking tracks internet trends. A separate Pump.fun attention radar shows what that platform is surfacing and attempts to trace each listing back to X, news, or an existing Front Run narrative. Coin activity is never mixed into the main trend score and is not a recommendation to buy.
+<p align="center">
+  Catch emerging internet stories before they saturate.
+</p>
 
-Each ingestion keeps up to 250 ranked signals, reserving at least 40 and capping around 50 places for Animals, 18 for current individual Memes, and 20 for Technology. Animal coverage is balanced across cats, dogs, bears, birds, marine life, wildlife, and zoo stories. Meme roundup and listicle pages are excluded so the meme section stays focused on specific formats and characters moving now.
+<p align="center">
+  <a href="https://front-run.onrender.com/"><strong>Open the live dashboard</strong></a>
+  ·
+  <a href="#run-locally">Run locally</a>
+  ·
+  <a href="#deploy-on-render">Deploy</a>
+</p>
 
-## What is real data
+Front Run is a live early-signal dashboard for tracking internet trends across news, search, social samples and specialist sources. It clusters related observations, measures momentum across five time windows and estimates whether each signal is igniting, accelerating, peaking or cooling.
 
-Front Run never invents platform counts. Each connector reports its own metric and availability:
+The main board is strictly about narratives and cultural trends. Any platform-specific market radar remains separate from the primary trend ranking.
 
-- Google Trends RSS: breakout searches and approximate search traffic
-- Google News RSS: US top stories plus dedicated Animals, Technology, and Viral searches
-- Know Your Meme: newest encyclopedia entries plus Trending, Updated, and Researching surfaces; the highest-priority names are cross-checked on X
-- Direct publisher feeds: NPR, CBS News, The New York Times, The Verge, TechCrunch, WIRED, Mongabay, Catster, Smithsonian Science & Nature, Audubon, the National Wildlife Federation, Houston Zoo, Woodland Park Zoo, Zoo Atlanta, Denver Zoo, Lincoln Park Zoo, and Phoenix Zoo
-- Hacker News API: points and discussion activity
-- TwitterAPI.io: cost-capped samples of recent X posts, author breadth, engagement, and direct links to leading public posts
-- YouTube Data API: popular-video views and view velocity
-- TikTok through Bright Data: sampled keyword-matched posts, plays, shares, and comments
-- Pump.fun: featured coins and leading Movers from the public Explore surface, plus creator-linked source metadata
-- OpenAI Responses API: classification and trajectory copy only; the model cannot alter source counts
+## What it does
 
-TikTok and X values are explicitly marked as samples because keyword discovery does not expose either platform's complete firehose. X sampling is limited to one high-priority query every 30 minutes by default, cached for six hours, and stopped by a database-backed monthly budget. If a key is missing or a provider fails, the source is shown as unavailable instead of being simulated.
+- Tracks up to roughly 250 active signals without clearing the board during refreshes.
+- Separates **first detected** time from the age of the newest source.
+- Scores movement across 5-minute, 30-minute, 60-minute, 6-hour and 24-hour windows.
+- Organizes trends into Memes, Animals, Technology, News, Viral Events, Internet Culture, Entertainment, Sports and Food & Drink.
+- Keeps deep animal coverage across cats, dogs, bears, birds, marine life, wildlife and zoo stories.
+- Tracks named memes and formats while filtering roundups, promotional submissions and finance headlines.
+- Shows source links, leading public posts when sampled, trajectory, saturation and a structured next-move forecast.
+- Supports newest-detected, oldest-detected and viral-score sorting.
 
-## Render architecture
+## Data sources
 
-- Next.js Node web service
-- Render Postgres for cached payloads and rolling trend snapshots
-- Render Cron Job that runs ingestion directly against Postgres every five minutes, with a retrying protected-HTTP fallback
-- `render.yaml` Blueprint for the web service, database, health check, secret wiring, and cron schedule
+Front Run uses source-native measurements and labels samples explicitly. It does not invent platform counts.
 
-The public dashboard server-renders the latest stored payload, so trends remain visible during reloads and while the next collection is running. The client checks for an updated payload every five minutes. Collection is single-flight inside each server instance, and manual refreshes have a one-minute floor to prevent API-cost abuse.
+- Google Trends and Google News RSS
+- Know Your Meme discovery, trending and resurgence surfaces
+- Direct technology, national news, animal, wildlife and zoo publishers
+- Hacker News public API
+- Cost-controlled X samples through TwitterAPI.io
+- Optional YouTube Data API statistics
+- Optional TikTok discovery through Bright Data
+- Optional OpenAI-written classification and forecast copy
+- A separate Pump.fun attention surface using public listing metadata
 
-## Environment variables
+If a provider is not configured or temporarily fails, the dashboard reports that state and continues with the remaining sources.
 
-Copy `.env.example` to `.env.local` for local development. Never commit real keys.
+## How it works
 
-Required for persistent production history:
+```mermaid
+flowchart LR
+    A[Public feeds and APIs] --> B[Collectors]
+    B --> C[Normalize and cluster]
+    C --> D[Momentum and lifecycle scoring]
+    D --> E[(Postgres snapshots)]
+    E --> F[Next.js dashboard]
+    E --> D
+```
 
-- `DATABASE_URL`
-- `INGEST_SECRET`
+Every five minutes, the scheduled collector reads available sources, clusters related titles and stores a new snapshot. Historical observations supply measured velocity. Rediscovered trends retain their original detection time, while new evidence updates their latest-source time and confidence.
 
-Optional data providers:
+The public trend API only reads the most recent stored snapshot. Collection is performed by the scheduled job or the bearer-protected ingestion endpoint, preventing public visitors from triggering paid provider work.
 
-- `TWITTERAPI_IO_KEY`, `TWITTERAPI_MONTHLY_BUDGET_USD`, `TWITTERAPI_SAMPLE_INTERVAL_MINUTES`, `TWITTERAPI_QUERY_LIMIT`, `TWITTERAPI_CACHE_HOURS`
-- `PUMPFUN_LIMIT`, `PUMPFUN_ENRICH_LIMIT` (no Pump.fun key required)
-- `YOUTUBE_API_KEY`, `YOUTUBE_REGIONS`
-- `BRIGHTDATA_API_TOKEN`, `TIKTOK_QUERY_LIMIT`, `TIKTOK_POSTS_PER_QUERY`, `TIKTOK_SEED_QUERIES`
-- `OPENAI_API_KEY`, `OPENAI_MODEL`
+## Run locally
 
-The free public Google and Hacker News feeds work without credentials.
-
-## Pump.fun radar
-
-The Pump.fun connector reads the platform's public Explore page and follows public coin metadata for the leading listings. To protect the X budget, Pump.fun listings do not trigger social-data queries. Creator-provided X and website links remain labeled as unverified metadata. A stronger source label appears only when the narrative matches independent Front Run news/trend evidence.
-
-The Pump attention score combines the platform's displayed position, external-source availability, and independent narrative crossover. It does not measure token safety, liquidity quality, holder concentration, or expected return.
-
-## Local development
+Requirements: Node.js 22.13 or newer.
 
 ```bash
+git clone https://github.com/openclawprison/front-run.git
+cd front-run
 npm ci
+cp .env.example .env.local
 npm run dev
 ```
 
-Open `http://localhost:3000`. Without `DATABASE_URL`, the API runs in explicit ephemeral mode. With Postgres configured, tables are created automatically.
+Open [http://localhost:3000](http://localhost:3000). Without `DATABASE_URL`, local development uses explicit ephemeral storage.
 
-Checks:
+### Environment variables
+
+Never commit real credentials. `.env*` files are ignored except for the empty `.env.example` template.
+
+| Purpose | Variables |
+| --- | --- |
+| Persistent history | `DATABASE_URL`, `DATABASE_SSL` |
+| Protected ingestion | `INGEST_SECRET` |
+| X samples | `TWITTERAPI_IO_KEY` and the `TWITTERAPI_*` controls |
+| YouTube | `YOUTUBE_API_KEY`, `YOUTUBE_REGIONS` |
+| TikTok | `BRIGHTDATA_API_TOKEN` and the `TIKTOK_*` controls |
+| Forecast copy | `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| Pump.fun limits | `PUMPFUN_LIMIT`, `PUMPFUN_ENRICH_LIMIT` |
+
+The public Google, publisher, Know Your Meme and Hacker News collectors work without API credentials.
+
+## Quality checks
 
 ```bash
 npm run lint
 npm test
 ```
 
-Health endpoint: `/api/health`
+The test command runs a production Next.js build plus rendered-source and collector tests.
 
-Normalized trend feed: `/api/trends`
+## Deploy on Render
 
-Protected scheduled ingestion: `POST /api/ingest` with `Authorization: Bearer <INGEST_SECRET>`
+The included [`render.yaml`](render.yaml) Blueprint defines:
 
-## Deploy with Render Blueprint
+- A Next.js web service
+- A Postgres database
+- A five-minute ingestion cron job
+- Generated secret wiring and optional provider-key placeholders
+- A database health check
 
-1. Push this repository to GitHub.
-2. In Render, choose **New > Blueprint** and connect the repository.
-3. Render detects `render.yaml` and creates `front-run`, `front-run-db`, and `front-run-ingest`.
-4. Enter the optional provider secrets when prompted. Leave out providers you do not use.
-5. Apply the Blueprint and wait for the web health check to pass.
-6. Open the cron job and choose **Trigger Run** once so the first stored baseline exists immediately.
+To deploy:
 
-The Blueprint uses a free web service and free Postgres for initial testing. Render's free Postgres instances expire after 30 days; switch the database plan before using Front Run as a durable production tracker. Render Cron Jobs have a small minimum monthly charge.
+1. Fork or clone the repository into your GitHub account.
+2. In Render, select **New → Blueprint** and connect the repository.
+3. Add only the provider credentials you intend to use.
+4. Apply the Blueprint.
+5. Trigger the ingestion cron once to create the first stored baseline.
 
-## TikTok configuration
+Render can deploy this project from either a public or private GitHub repository.
 
-Front Run uses Bright Data's TikTok “Discover posts by keyword” dataset (`gd_lu702nij2f790tmv9h`). Each run searches half of the query budget against current Google/X leaders and uses the remainder for configurable native TikTok seed phrases. This gives cross-platform confirmation and a limited native-discovery lane without pretending to have complete TikTok volume.
+## API surface
 
-Set:
+- `GET /api/health` — sanitized service and storage health
+- `GET /api/trends` — latest stored trend payload; does not trigger ingestion in production
+- `POST /api/ingest` — protected collection endpoint requiring `Authorization: Bearer <INGEST_SECRET>`
 
-```bash
-BRIGHTDATA_API_TOKEN=...
-TIKTOK_QUERY_LIMIT=6
-TIKTOK_POSTS_PER_QUERY=20
-TIKTOK_SEED_QUERIES=america viral,usa meme,usa challenge
-```
+## Accuracy and safety
 
-Keep the query and post limits conservative until you understand your provider billing.
+- X and TikTok metrics are samples, not complete platform-wide totals.
+- Creator-provided links remain labeled as unverified until independent evidence matches them.
+- Forecasts are directional research signals, not guarantees.
+- The separate market-attention surface is not financial advice or an endorsement.
 
-## Scoring
+## License
 
-1. Connectors emit normalized observations with source-native metrics and timestamps.
-2. Related titles are clustered using token overlap.
-3. The base viral score combines relative strength, freshness, source diversity, and saturation. Source priority is X first, Know Your Meme for meme discovery, direct publishers/news next, and Google Trends as the lowest-weight early-search hint.
-4. Postgres snapshots supply observed velocity for all five time windows.
-5. Stored velocity adjusts lifecycle phase and confidence.
-6. If OpenAI is configured, structured output improves the written classification and forecast. Deterministic heuristics remain the fallback.
-
-Zero velocity means Front Run has its first snapshot but not yet an older comparison point for that window.
+This repository is publicly viewable, but no open-source license is currently granted. Unless a license is added later, reuse, redistribution and commercial deployment require permission from the repository owner.

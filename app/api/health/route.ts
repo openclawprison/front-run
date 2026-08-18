@@ -11,7 +11,7 @@ export async function GET() {
     await db`SELECT 1`;
     return Response.json({ status: "ok", storage: "postgres" });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Database unavailable";
-    return Response.json({ status: "degraded", storage: "postgres", error: message }, { status: 503 });
+    console.error("Database health check failed", error);
+    return Response.json({ status: "degraded", storage: "postgres", error: "Database unavailable" }, { status: 503 });
   }
 }

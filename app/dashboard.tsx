@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Flame,
   Gauge,
+  GitFork,
   Globe2,
   LayoutGrid,
   Laugh,
@@ -134,7 +135,7 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
     else if (!initialPayload) setLoading(true);
     setError(null);
     try {
-      const response = await fetch(force ? "/api/trends?refresh=1" : "/api/trends", { cache: "no-store" });
+      const response = await fetch("/api/trends", { cache: "no-store" });
       const body = await response.json() as TrendsPayload & { error?: string };
       if (!response.ok) throw new Error(body.error || "Live sources did not respond");
       setPayload(body);
@@ -271,8 +272,8 @@ export default function Dashboard({ initialPayload }: { initialPayload: TrendsPa
           <div className="mobile-brand"><Telescope size={17} /><span>FRONT RUN</span></div>
           <label className="search-box"><Search size={17} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a trend, subject or phrase" aria-label="Search trends" /><kbd>Ctrl K</kbd></label>
           <div className="top-status"><span className={`status-dot ${error ? "status-error" : ""}`} /> {payload ? `Synced ${elapsed}s ago` : "Connecting"}</div>
+          <a className="github-link" href="https://github.com/openclawprison/front-run" target="_blank" rel="noreferrer" aria-label="View Front Run on GitHub"><GitFork size={16} /><span>GitHub</span></a>
           <button className="icon-button" aria-label="Refresh live trends" onClick={() => void loadTrends(true)} disabled={refreshing}><RefreshCw className={refreshing ? "spin" : ""} size={18} /></button>
-          <div className="profile-chip">FR</div>
         </header>
 
         <div className="content-wrap">

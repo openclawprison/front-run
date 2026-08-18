@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     const result = await readOrRefreshTrends({ force: true });
     return Response.json({ ok: true, refreshedAt: result.payload.refreshedAt, trends: result.payload.trends.length, storage: result.storage });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Ingestion failed";
-    return Response.json({ error: message }, { status: 502 });
+    console.error("Protected ingestion failed", error);
+    return Response.json({ error: "Ingestion failed" }, { status: 502 });
   }
 }

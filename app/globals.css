@@ -386,6 +386,29 @@ input:focus-visible {
   border-color: #bfc1b8;
 }
 
+.github-link {
+  min-width: 82px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid #252822;
+  border-radius: 8px;
+  color: #f4f4ee;
+  background: #252822;
+  font-size: 10px;
+  font-weight: 620;
+  text-decoration: none;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.github-link:hover {
+  color: var(--acid);
+  background: #171a16;
+}
+
 .profile-chip {
   width: 34px;
   height: 34px;
@@ -2166,6 +2189,16 @@ input:focus-visible {
   .search-box {
     width: auto;
     flex: 1;
+  }
+
+  .github-link {
+    min-width: 34px;
+    width: 34px;
+    padding: 0;
+  }
+
+  .github-link span {
+    display: none;
   }
 
   .page-intro h1 {
