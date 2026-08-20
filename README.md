@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="public/front-run-og.png" alt="Front Run — Early Signal Intelligence" width="100%" />
+  <img src="public/front-run-og.png" alt="Front Run — Viral Animal News" width="100%" />
 </p>
 
 <h1 align="center">Front Run</h1>
 
 <p align="center">
-  Catch emerging internet stories before they saturate.
+  Meet the animal before it goes viral.
 </p>
 
 <p align="center">
@@ -16,18 +16,16 @@
   <a href="#deploy-on-render">Deploy</a>
 </p>
 
-Front Run is a live early-signal dashboard for tracking internet trends across news, search, social samples and specialist sources. It clusters related observations, measures momentum across five time windows and estimates whether each signal is igniting, accelerating, peaking or cooling.
-
-The main board is strictly about narratives and cultural trends. Any platform-specific market radar remains separate from the primary trend ranking.
+Front Run is a dedicated animal-news signal dashboard. It finds the latest animal stories across publishers, zoos, aquariums, search and social samples, clusters related coverage, and estimates whether each animal is igniting, accelerating, peaking or cooling.
 
 ## What it does
 
-- Tracks up to roughly 250 active signals without clearing the board during refreshes.
+- Tracks up to roughly 180 active animal stories without clearing the board during refreshes.
 - Separates **first detected** time from the age of the newest source.
 - Scores movement across 5-minute, 30-minute, 60-minute, 6-hour and 24-hour windows.
-- Organizes trends into Memes, Animals, Technology, News, Viral Events, Internet Culture, Entertainment, Sports and Food & Drink.
-- Keeps deep animal coverage across cats, dogs, bears, birds, marine life, wildlife and zoo stories.
-- Tracks named memes and formats while filtering roundups, promotional submissions and finance headlines.
+- Organizes animal stories into Viral Animals, Zoo Babies, Rescues, Cats, Dogs, Bears, Birds, Marine Life, Primates, Reptiles, Farm Animals, Endangered and Wildlife.
+- Gives freshness, social confirmation, named-animal hooks and cross-publisher pickup extra weight.
+- Filters sportspeople, teams, finance language and other false positives that happen to contain animal words.
 - Shows source links, leading public posts when sampled, trajectory, saturation and a structured next-move forecast.
 - Supports newest-detected, oldest-detected and viral-score sorting.
 
@@ -35,15 +33,12 @@ The main board is strictly about narratives and cultural trends. Any platform-sp
 
 Front Run uses source-native measurements and labels samples explicitly. It does not invent platform counts.
 
-- Google Trends and Google News RSS
-- Know Your Meme discovery, trending and resurgence surfaces
-- Direct technology, national news, animal, wildlife and zoo publishers
-- Hacker News public API
+- Animal-filtered Google Trends and 19 focused Google News discovery feeds
+- 31 direct animal, pet, wildlife, conservation, zoo and aquarium publishers
 - Cost-controlled X samples through TwitterAPI.io
-- Optional YouTube Data API statistics
-- Optional TikTok discovery through Bright Data
-- Optional OpenAI-written classification and forecast copy
-- A separate Pump.fun attention surface using public listing metadata
+- Optional animal-filtered YouTube Data API statistics
+- Optional animal-keyword TikTok discovery through Bright Data
+- Optional OpenAI-written animal summaries and forecast copy
 
 If a provider is not configured or temporarily fails, the dashboard reports that state and continues with the remaining sources.
 
@@ -89,9 +84,8 @@ Never commit real credentials. `.env*` files are ignored except for the empty `.
 | YouTube | `YOUTUBE_API_KEY`, `YOUTUBE_REGIONS` |
 | TikTok | `BRIGHTDATA_API_TOKEN` and the `TIKTOK_*` controls |
 | Forecast copy | `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| Pump.fun limits | `PUMPFUN_LIMIT`, `PUMPFUN_ENRICH_LIMIT` |
 
-The public Google, publisher, Know Your Meme and Hacker News collectors work without API credentials.
+The public Google and direct animal-publisher collectors work without API credentials.
 
 ## Quality checks
 
@@ -131,9 +125,7 @@ Render can deploy this project from either a public or private GitHub repository
 ## Accuracy and safety
 
 - X and TikTok metrics are samples, not complete platform-wide totals.
-- Creator-provided links remain labeled as unverified until independent evidence matches them.
 - Forecasts are directional research signals, not guarantees.
-- The separate market-attention surface is not financial advice or an endorsement.
 
 ## License
 

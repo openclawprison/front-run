@@ -5,6 +5,9 @@ const now = new Date();
 const published = new Date(now.getTime() - 20 * 60_000).toUTCString();
 const end = new Date(now.getTime() - 30_000).toISOString();
 const animalTitle = "Elite runner was mauled by a brown bear on a mountain trail";
+const viralCatTitle = "Mittens the rescue cat goes viral after ringing the shelter bell";
+const zooBabyTitle = "Baby gorilla born at Houston Zoo makes public debut";
+const rescueDogTitle = "Firefighters rescue dog stranded beside icy river";
 const techTitle = "Apple reveals pocket AI robot for the home";
 const sportTitle = "Chicago Cubs star Pete Crow-Armstrong hits two home runs";
 const officialTitle = "Bird defends state decision to submit voter data to feds";
@@ -35,6 +38,9 @@ function rss(items: Array<{ title: string; link: string; source: string; traffic
 
 const feed = rss([
   { title: animalTitle, link: "https://news.example/bear", source: "Wildlife Daily", traffic: "5K+" },
+  { title: viralCatTitle, link: "https://news.example/cat", source: "Animal Daily", traffic: "8K+" },
+  { title: zooBabyTitle, link: "https://news.example/gorilla", source: "Zoo Daily", traffic: "3K+" },
+  { title: rescueDogTitle, link: "https://news.example/dog", source: "Rescue Daily", traffic: "2K+" },
   { title: techTitle, link: "https://news.example/robot", source: "Tech Daily", traffic: "2K+" },
   { title: sportTitle, link: "https://news.example/baseball", source: "Sports Daily", traffic: "4K+" },
   { title: officialTitle, link: "https://news.example/government", source: "State News", traffic: "3K+" },
@@ -83,7 +89,7 @@ globalThis.fetch = (async (input: string | URL | Request) => {
 
 const { buildTrendsPayload } = await import("../lib/trend-engine");
 
-test("discovers category-specific news and enriches selected stories with budgeted X samples", async () => {
+test("publishes only animal news and enriches fresh animal stories with budgeted X samples", async () => {
   const payload = await buildTrendsPayload(new Map(), {
     twitterApiUsage: { billablePosts: 0, queryCount: 0 },
     recordTwitterApiUsage: async (billablePosts, queryCount) => {
@@ -91,19 +97,17 @@ test("discovers category-specific news and enriches selected stories with budget
       recordedQueryCount += queryCount;
     },
   });
-  const animal = payload.trends.find((trend) => trend.category === "Animals");
-  const technology = payload.trends.find((trend) => trend.category === "Technology");
+  const animal = payload.trends.find((trend) => trend.evidence.some((item) => item.url === "https://news.example/bear"));
   const baseball = payload.trends.find((trend) => trend.title.includes("Crow-Armstrong"));
   const government = payload.trends.find((trend) => trend.title.includes("Bird defends"));
-  const meme = payload.trends.find((trend) => trend.category === "Memes");
 
   assert.ok(animal, "expected an animal trend");
-  assert.ok(technology, "expected a technology trend");
-  assert.ok(baseball, "expected the Pete Crow-Armstrong story");
-  assert.ok(government, "expected the government official story");
-  assert.ok(meme, "expected a Know Your Meme signal");
-  assert.equal(baseball.category, "Sports");
-  assert.equal(government.category, "News");
+  assert.equal(baseball, undefined, "sportspeople with animal words must be excluded");
+  assert.equal(government, undefined, "political names containing animal words must be excluded");
+  assert.ok(payload.trends.every((trend) => trend.category === "Animals"));
+  assert.ok(payload.trends.some((trend) => trend.subcategory === "Viral animals"));
+  assert.ok(payload.trends.some((trend) => trend.subcategory === "Zoo babies"));
+  assert.ok(payload.trends.some((trend) => trend.subcategory === "Rescues"));
   assert.equal(animal.title, "Brown Bear Trail Attack");
   assert.ok(payload.trends.every((trend) => trend.title.length <= 42 && trend.title.split(/\s+/).length <= 5));
   assert.ok(payload.trends.every((trend) => !/top 25 memes|memes of the decade/i.test(trend.title)));
@@ -117,23 +121,15 @@ test("discovers category-specific news and enriches selected stories with budget
   assert.match(animal.platforms.x.detail, /TwitterAPI\.io/);
   assert.ok(animal.evidence.some((item) => item.url === "https://x.com/wildlife_reporter/status/1234567890"));
   assert.ok(animal.evidence.some((item) => item.url === "https://news.example/bear"));
-  assert.ok(observedXQueries.length >= 2 && observedXQueries.length <= 5);
+  assert.ok(observedXQueries.length >= 1 && observedXQueries.length <= 5);
   assert.ok(observedXQueries.some((query) => query.includes("bear") && !query.includes("runner was the person")));
-  assert.ok(observedXQueries.some((query) => /bicep|pam|corn dog|dip stack/i.test(query)));
-  assert.ok(meme.evidence.some((item) => item.url.includes("knowyourmeme.com")));
-  assert.ok(meme.evidence.some((item) => item.source === "X search" && item.url.startsWith("https://x.com/search?")));
-  assert.ok(payload.trends.some((trend) => trend.category === "Memes" && trend.subcategory === "New entries"));
-  assert.ok(payload.trends.every((trend) => !/marketing react native app development/i.test(trend.title)));
-  assert.equal(payload.sources.find((source) => source.key === "kym")?.state, "live");
-  assert.match(payload.sources.find((source) => source.key === "kym")?.detail ?? "", /reader fallback/);
+  assert.ok(observedXQueries.every((query) => !/apple|robot|crow-armstrong|voter data/i.test(query)));
   assert.match(payload.sources.find((source) => source.key === "x")?.detail ?? "", /live sample/);
   assert.equal(recordedBillablePosts, observedXQueries.length);
   assert.equal(recordedQueryCount, observedXQueries.length);
-  assert.equal(payload.pumpCoins[0]?.name, "Jimothy The Raccoon");
-  assert.equal(payload.pumpCoins[0]?.bucket, "Trending now");
-  assert.equal(payload.pumpCoins[0]?.xPosts, undefined);
-  assert.equal(payload.sources.find((source) => source.key === "pumpfun")?.state, "live");
-  assert.match(payload.sources.find((source) => source.key === "publisher")?.detail ?? "", /11 dedicated animal/);
+  assert.deepEqual(payload.categories.map((category) => category.name), ["Animals"]);
+  assert.ok(payload.categories[0].subcategories.length >= 13);
+  assert.match(payload.sources.find((source) => source.key === "publisher")?.detail ?? "", /animal, wildlife, rescue, zoo and aquarium feeds live/);
 
   const queriesBeforeCacheCheck = observedXQueries.length;
   const cachedPayload = await buildTrendsPayload(new Map(), {

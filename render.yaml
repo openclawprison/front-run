@@ -26,10 +26,6 @@ services:
         value: "1"
       - key: TWITTERAPI_CACHE_HOURS
         value: "6"
-      - key: PUMPFUN_LIMIT
-        value: "12"
-      - key: PUMPFUN_ENRICH_LIMIT
-        value: "10"
       - key: YOUTUBE_API_KEY
         sync: false
       - key: YOUTUBE_REGIONS
@@ -41,7 +37,7 @@ services:
       - key: TIKTOK_POSTS_PER_QUERY
         value: "20"
       - key: TIKTOK_SEED_QUERIES
-        value: america viral,usa meme,usa challenge
+        value: viral animal usa,viral pet usa,zoo baby viral,animal rescue viral,cute animals usa,wildlife caught on camera
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
@@ -85,10 +81,6 @@ services:
         value: "1"
       - key: TWITTERAPI_CACHE_HOURS
         value: "6"
-      - key: PUMPFUN_LIMIT
-        value: "12"
-      - key: PUMPFUN_ENRICH_LIMIT
-        value: "10"
       - key: YOUTUBE_API_KEY
         fromService:
           type: web
@@ -106,7 +98,7 @@ services:
       - key: TIKTOK_POSTS_PER_QUERY
         value: "20"
       - key: TIKTOK_SEED_QUERIES
-        value: america viral,usa meme,usa challenge
+        value: viral animal usa,viral pet usa,zoo baby viral,animal rescue viral,cute animals usa,wildlife caught on camera
       - key: OPENAI_API_KEY
         fromService:
           type: web

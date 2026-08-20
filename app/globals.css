@@ -2180,6 +2180,16 @@ input:focus-visible {
 }
 
 @media (max-width: 760px) {
+  .topbar {
+    gap: 8px;
+    padding: 0 12px;
+    overflow: hidden;
+  }
+
+  .mobile-brand {
+    flex: 0 0 auto;
+  }
+
   .top-status,
   .profile-chip,
   .search-box kbd {
@@ -2188,7 +2198,12 @@ input:focus-visible {
 
   .search-box {
     width: auto;
+    min-width: 0;
     flex: 1;
+  }
+
+  .topbar .icon-button {
+    flex: 0 0 34px;
   }
 
   .github-link {

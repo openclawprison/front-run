@@ -18,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "Front Run — Early Signal Intelligence";
-  const description = "Catch emerging internet trends before they become the story with live source activity, multi-window momentum and lifecycle forecasts.";
+  const title = "Front Run — Viral Animal News";
+  const description = "Track the latest animal news, viral pets, zoo babies, rescues and wildlife stories with live momentum and lifecycle forecasts.";
 
   return {
     metadataBase: new URL(origin),
@@ -34,7 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       url: origin,
-      images: [{ url: `${origin}/front-run-og.png`, alt: "Front Run — Catch the story before it becomes the story." }],
+      images: [{ url: `${origin}/front-run-og.png`, alt: "Front Run — latest viral animal news and momentum." }],
     },
     twitter: {
       card: "summary_large_image",

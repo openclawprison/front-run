@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("ships the Front Run live dashboard and real source adapters", async () => {
+test("ships the Front Run animal-news dashboard and real source adapters", async () => {
   const [page, dashboard, layout, route, engine, blueprint, packageJson, cronScript, readme] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/dashboard.tsx", root), "utf8"),
@@ -22,8 +22,10 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /FRONT RUN/);
   assert.match(dashboard, /Platform counts/);
   assert.match(dashboard, /News coverage and leading posts/);
-  assert.match(dashboard, /Pump\.fun attention radar/);
-  assert.match(dashboard, /Not an endorsement/);
+  assert.match(dashboard, /Meet the animal/);
+  assert.match(dashboard, /Latest animal news/);
+  assert.match(dashboard, /All animals/);
+  assert.doesNotMatch(dashboard, /Pump\.fun|memecoin|Technology watch/);
   assert.match(dashboard, /TREND_TAXONOMY/);
   assert.match(dashboard, /Newest detected/);
   assert.match(dashboard, /useState<SortMode>\("newest"\)/);
@@ -33,7 +35,7 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(dashboard, /initialPayload \? new Date\(initialPayload\.refreshedAt\)\.getTime\(\) : 0/);
   assert.doesNotMatch(dashboard, /useState\(\(\) => Date\.now\(\)\)/);
   assert.doesNotMatch(dashboard, /Polar-bear rescue edits|Preview feed active/);
-  assert.match(layout, /Front Run — Early Signal Intelligence/);
+  assert.match(layout, /Front Run — Viral Animal News/);
   assert.match(route, /readLatestStoredTrends/);
   assert.doesNotMatch(route, /searchParams\.get\("refresh"\)/);
   assert.match(engine, /trends\.google\.com\/trending\/rss/);
@@ -41,32 +43,29 @@ test("ships the Front Run live dashboard and real source adapters", async () => 
   assert.match(engine, /TWITTERAPI_MONTHLY_BUDGET_USD/);
   assert.match(engine, /scope: "sample"/);
   assert.doesNotMatch(engine, /api\.x\.com/);
-  assert.match(engine, /Animal watch/);
-  assert.match(engine, /Technology watch/);
-  assert.match(engine, /Know Your Meme coverage/);
-  assert.match(engine, /collectKnowYourMeme/);
-  assert.match(engine, /category === "Memes"/);
-  assert.match(engine, /MEME_TREND_RESERVE = 18/);
-  assert.match(engine, /isLowSignalMemeCollection/);
-  assert.match(engine, /isPromotionalMemeEntry/);
+  assert.match(engine, /Viral animals now/);
+  assert.match(engine, /Zoo babies/);
+  assert.match(engine, /Animal rescues/);
+  assert.match(engine, /animalSubcategoryFor/);
+  assert.match(engine, /filteredItems = items\.filter\(\(item\) => isAnimalCandidate/);
   assert.match(engine, /firstSeenMode: "detected"/);
   assert.match(engine, /National Wildlife Federation/);
-  assert.match(engine, /Khao Kheow Open Zoo/);
+  assert.match(engine, /San Diego Zoo Wildlife Alliance/);
+  assert.match(engine, /Monterey Bay Aquarium/);
   assert.match(engine, /Houston Zoo/);
-  assert.match(engine, /ANIMAL_TREND_RESERVE = 40/);
-  assert.match(engine, /ANIMAL_TREND_LIMIT = 50/);
-  assert.match(engine, /TOTAL_TREND_LIMIT = 250/);
-  assert.match(engine, /frontend-api-v3\.pump\.fun/);
+  assert.match(engine, /TOTAL_TREND_LIMIT = 180/);
   assert.match(engine, /sourcePriorityWeight/);
   assert.match(engine, /shortTrendTitle/);
   assert.match(engine, /leading-post links/);
   assert.match(engine, /const regions = \["US"\]/);
   assert.match(engine, /gd_lu702nij2f790tmv9h/);
+  assert.match(engine, /Promise\.all\(\[collectGoogleTrends\(\), collectGoogleNews\(\), collectPublisherNews\(\), collectYouTube\(\)\]\)/);
   assert.match(blueprint, /healthCheckPath: \/api\/health/);
   assert.match(blueprint, /schedule: "\*\/5 \* \* \* \*"/);
   assert.match(blueprint, /TWITTERAPI_IO_KEY/);
   assert.match(blueprint, /TWITTERAPI_MONTHLY_BUDGET_USD/);
   assert.match(blueprint, /TWITTERAPI_SAMPLE_INTERVAL_MINUTES/);
+  assert.doesNotMatch(blueprint, /PUMPFUN/);
   assert.match(blueprint, /type: cron[\s\S]*DATABASE_URL[\s\S]*fromDatabase/);
   assert.match(blueprint, /type: cron[\s\S]*TWITTERAPI_IO_KEY[\s\S]*OPENAI_API_KEY/);
   assert.match(packageJson, /tsx scripts\/trigger-ingest\.ts/);

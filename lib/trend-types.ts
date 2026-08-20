@@ -3,15 +3,24 @@ export type Phase = "Igniting" | "Accelerating" | "Peaking" | "Cooling";
 export type WindowValues = Record<TimeWindow, number>;
 
 export const TREND_TAXONOMY = [
-  { name: "Memes", subcategories: ["Trending", "New entries", "Resurgences", "Formats"] },
-  { name: "Animals", subcategories: ["Cats", "Dogs", "Bears", "Birds", "Marine", "Wildlife"] },
-  { name: "Technology", subcategories: ["AI", "Consumer tech", "Space", "Startups", "Cybersecurity"] },
-  { name: "News", subcategories: ["World", "Business", "Science", "Culture"] },
-  { name: "Viral events", subcategories: ["Challenges", "Moments", "Reactions", "Formats"] },
-  { name: "Internet culture", subcategories: ["Language", "Creator lore"] },
-  { name: "Entertainment", subcategories: ["Music", "Film & TV", "Creators"] },
-  { name: "Sports", subcategories: ["Football", "Cricket", "Basketball", "Other"] },
-  { name: "Food & drink", subcategories: ["Recipes", "Restaurants", "Food loops"] },
+  {
+    name: "Animals",
+    subcategories: [
+      "Viral animals",
+      "Zoo babies",
+      "Rescues",
+      "Cats",
+      "Dogs",
+      "Bears",
+      "Birds",
+      "Marine life",
+      "Primates",
+      "Reptiles",
+      "Farm animals",
+      "Endangered",
+      "Wildlife",
+    ],
+  },
 ] as const;
 
 export type TrendEvidence = {
@@ -79,6 +88,8 @@ export type NewsItem = {
   trendId?: string;
 };
 
+// Kept as internal adapter shapes so older stored snapshots can still be read
+// during an animal-only deployment rollover. They are no longer in TrendsPayload.
 export type PumpCoinBucket = "Trending now" | "Movers";
 
 export type PumpCoin = {
@@ -118,6 +129,5 @@ export type TrendsPayload = {
   trends: Trend[];
   categories: TrendCategorySummary[];
   news: NewsItem[];
-  pumpCoins: PumpCoin[];
   sources: SourceStatus[];
 };

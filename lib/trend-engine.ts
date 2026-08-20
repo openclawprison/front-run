@@ -127,7 +127,7 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
       rssItems(xml).slice(0, 25).forEach((entry, index) => {
         const title = tag(entry, "title");
         const key = normalize(title);
-        if (!isUsefulTitle(title) || seen.has(key)) return;
+        if (!isUsefulTitle(title) || !isAnimalCandidate(`${title} ${tag(entry, "ht:news_item_title")}`) || seen.has(key)) return;
         seen.add(key);
         const activity = numberFromTraffic(tag(entry, "ht:approx_traffic") || "1");
         const publishedAt = new Date(tag(entry, "pubDate") || Date.now()).toISOString();
@@ -145,6 +145,7 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
           strength: clamp(30 + Math.log10(activity + 1) * 7 - index * 0.35, 24, 62),
           detail: `${tag(entry, "ht:approx_traffic") || activity.toLocaleString()} searches · ${geo}`,
           geography: geo,
+          categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(`${title} ${relatedTitle}`) },
           relatedNews: relatedTitle ? { title: relatedTitle, url: articleUrl, source: relatedSource } : undefined,
         });
       });
@@ -158,18 +159,25 @@ async function collectGoogleTrends(): Promise<CollectorResult> {
 async function collectGoogleNews(): Promise<CollectorResult> {
   try {
     const feeds = [
-      { label: "US top stories", query: "", limit: 32, strength: 62 },
-      { label: "Animal watch", query: "(animal OR wildlife OR zoo OR pet OR cat OR dog OR bear OR whale OR dolphin OR rescue) when:2d", limit: 40, strength: 61 },
-      { label: "Zoo arrivals", query: "(zoo OR aquarium) (baby OR born OR hatch OR rescue OR arrival OR escaped OR viral) when:7d", limit: 32, strength: 64 },
-      { label: "Famous US zoos", query: "(\"San Diego Zoo\" OR \"Bronx Zoo\" OR \"Smithsonian National Zoo\" OR \"Cincinnati Zoo\" OR \"Houston Zoo\" OR \"Denver Zoo\") when:7d", limit: 32, strength: 64 },
-      { label: "More US zoos", query: "(\"Columbus Zoo\" OR \"Oregon Zoo\" OR \"Woodland Park Zoo\" OR \"Lincoln Park Zoo\" OR \"Phoenix Zoo\" OR \"Zoo Atlanta\") when:7d", limit: 32, strength: 63 },
-      { label: "Moo Deng and Asian zoos", query: "(\"Moo Deng\" OR \"Khao Kheow Open Zoo\" OR \"pygmy hippo\" OR \"baby hippo\") when:14d", limit: 24, strength: 65 },
-      { label: "Pet watch", query: "(cat OR kitten OR dog OR puppy OR pet) (viral OR rescue OR adopted OR video) when:2d", limit: 32, strength: 61 },
-      { label: "Wildlife watch", query: "(bear OR panda OR bird OR penguin OR elephant OR gorilla OR otter OR capybara OR whale OR dolphin) when:2d", limit: 36, strength: 61 },
-      { label: "Technology watch", query: "(technology OR AI OR robot OR Apple OR Google OR OpenAI OR startup OR cybersecurity OR space) when:1d", limit: 24, strength: 58 },
-      { label: "Meme watch", query: "(meme OR memes OR \"reaction image\" OR \"viral format\" OR \"TikTok trend\") when:2d", limit: 28, strength: 63 },
-      { label: "Know Your Meme coverage", query: "site:knowyourmeme.com (meme OR trend OR viral) when:7d", limit: 24, strength: 64 },
-      { label: "Viral watch", query: "(viral OR meme OR \"caught on camera\" OR \"social media\") when:1d", limit: 18, strength: 58 },
+      { label: "Viral animals now", query: "(animal OR pet OR wildlife OR zoo) (viral OR trending OR \"social media\" OR TikTok OR Instagram OR video) when:1d", limit: 40, strength: 72 },
+      { label: "Animal breaking news", query: "(animal OR wildlife OR zoo OR pet) (breaking OR latest OR today OR rescue OR escaped) when:1d", limit: 40, strength: 68 },
+      { label: "Viral pets", query: "(cat OR kitten OR dog OR puppy OR pet) (viral OR famous OR video OR internet OR rescued OR adopted) when:2d", limit: 40, strength: 69 },
+      { label: "Zoo babies", query: "(zoo OR aquarium) (baby OR newborn OR born OR birth OR cub OR calf OR chick OR hatch) when:7d", limit: 40, strength: 70 },
+      { label: "Zoo arrivals", query: "(zoo OR aquarium) (arrival OR arrives OR rescue OR escaped OR debut OR named) when:7d", limit: 32, strength: 67 },
+      { label: "Major US zoos", query: "(\"San Diego Zoo\" OR \"Bronx Zoo\" OR \"Smithsonian National Zoo\" OR \"Cincinnati Zoo\" OR \"Houston Zoo\" OR \"Columbus Zoo\") when:7d", limit: 36, strength: 69 },
+      { label: "More US zoos", query: "(\"Oregon Zoo\" OR \"Woodland Park Zoo\" OR \"Lincoln Park Zoo\" OR \"Phoenix Zoo\" OR \"Zoo Atlanta\" OR \"Denver Zoo\") when:7d", limit: 36, strength: 68 },
+      { label: "Aquarium watch", query: "(\"Monterey Bay Aquarium\" OR \"Georgia Aquarium\" OR \"Shedd Aquarium\" OR \"New England Aquarium\") when:7d", limit: 32, strength: 68 },
+      { label: "Moo Deng watch", query: "(\"Moo Deng\" OR \"Khao Kheow Open Zoo\" OR \"pygmy hippo\" OR \"baby hippo\") when:14d", limit: 24, strength: 70 },
+      { label: "Animal rescues", query: "(animal OR wildlife OR cat OR dog OR horse) (rescued OR rescue OR rehabilitation OR released OR adopted) when:2d", limit: 36, strength: 67 },
+      { label: "Cats", query: "(cat OR kitten OR feline) (viral OR rescue OR video OR unusual OR record) when:2d", limit: 30, strength: 66 },
+      { label: "Dogs", query: "(dog OR puppy OR canine) (viral OR rescue OR video OR unusual OR record) when:2d", limit: 30, strength: 66 },
+      { label: "Bears", query: "(bear OR panda OR polar bear OR grizzly) (wildlife OR zoo OR rescue OR video) when:3d", limit: 30, strength: 66 },
+      { label: "Birds", query: "(bird OR penguin OR owl OR eagle OR parrot OR flamingo) (wildlife OR zoo OR rescue OR viral) when:2d", limit: 30, strength: 65 },
+      { label: "Marine life", query: "(whale OR dolphin OR orca OR shark OR seal OR otter OR sea turtle) when:2d", limit: 34, strength: 66 },
+      { label: "Primates", query: "(gorilla OR chimpanzee OR orangutan OR monkey OR lemur) (zoo OR wildlife OR rescue OR viral) when:3d", limit: 28, strength: 65 },
+      { label: "Reptiles", query: "(snake OR alligator OR crocodile OR turtle OR lizard OR reptile) (wildlife OR zoo OR rescue OR viral) when:3d", limit: 28, strength: 64 },
+      { label: "Endangered species", query: "(endangered OR threatened OR conservation) (animal OR species OR wildlife) when:3d", limit: 32, strength: 67 },
+      { label: "Farm animals", query: "(horse OR cow OR goat OR pig OR sheep OR donkey) (animal OR rescue OR viral OR unusual) when:2d", limit: 28, strength: 63 },
     ];
     const responses = await Promise.all(feeds.map((feed) => {
       const base = feed.query ? "https://news.google.com/rss/search" : "https://news.google.com/rss";
@@ -186,14 +194,13 @@ async function collectGoogleNews(): Promise<CollectorResult> {
         const split = rawTitle.lastIndexOf(" - ");
         const title = (split > 0 ? rawTitle.slice(0, split) : rawTitle).trim();
         const key = normalize(title);
-        if (!isUsefulTitle(title) || isLowSignalMemeCollection(title) || seen.has(key)) return;
+        if (!isUsefulTitle(title) || !isAnimalCandidate(title) || seen.has(key)) return;
         const outlet = split > 0 ? rawTitle.slice(split + 3) : "Publisher";
         if (/^(facebook\.com|instagram|youtube|tiktok)$/i.test(outlet.trim())) return;
-        const memeDiscovery = feed.label === "Meme watch" || feed.label === "Know Your Meme coverage";
-        if (memeDiscovery && !isSpecificMemeHeadline(title)) return;
-        if (feed.label === "Know Your Meme coverage" && !/know your meme/i.test(outlet)) return;
-        const zooDiscovery = feed.label === "Zoo arrivals" || feed.label === "Famous US zoos" || feed.label === "More US zoos" || feed.label === "Moo Deng and Asian zoos";
-        if (zooDiscovery && !/\b(animal|wildlife|baby|newborn|born|birth|hatch|hatched|chick|cub|calf|rescue|rescued|arrival|arrives|species|hippo|gorilla|monkey|ape|giraffe|elephant|panda|bear|cat|dog|bird|penguin|otter|capybara|rhino|tiger|lion|leopard|fox|wolf|whale|dolphin|porpoise|seal|turtle|snake|lizard|frog|kagu)\b/i.test(title)) return;
+        const publishedAt = new Date(tag(entry, "pubDate") || Date.now());
+        const ageHours = Math.max(0, (Date.now() - publishedAt.getTime()) / 3_600_000);
+        const maxAgeHours = /Zoo|Aquarium|Moo Deng/.test(feed.label) ? 7 * 24 : 3 * 24;
+        if (!Number.isFinite(publishedAt.getTime()) || ageHours > maxAgeHours) return;
         seen.add(key);
         items.push({
           id: `news-${slug(title)}`,
@@ -201,22 +208,16 @@ async function collectGoogleNews(): Promise<CollectorResult> {
           url: tag(entry, "link") || "https://news.google.com/",
           source: "news",
           sourceLabel: outlet,
-          publishedAt: new Date(tag(entry, "pubDate") || Date.now()).toISOString(),
+          publishedAt: publishedAt.toISOString(),
           activity: 1,
           strength: clamp(feed.strength - index * 0.55, 36, feed.strength),
           detail: `${outlet} · ${feed.label}`,
           geography: "US",
-          categoryHint: feed.label === "Meme watch" || feed.label === "Know Your Meme coverage" ? {
-            category: "Memes",
-            subcategory: /\b(format|template|reaction image|image macro|redraw|caption)\b/i.test(title)
-              ? "Formats"
-              : /\b(resurgence|resurges|returns|revival|back again)\b/i.test(title) ? "Resurgences" : "Trending",
-          } : undefined,
-          extraEvidence: feed.label === "Meme watch" || feed.label === "Know Your Meme coverage" ? [memeXSearchEvidence(title)] : undefined,
+          categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(title) },
         });
       });
     });
-    return { items, status: { key: "news", label: "Google News", state: "live", detail: "US top stories plus deep Animals, zoo, Technology and Viral discovery feeds", itemCount: items.length } };
+    return { items, status: { key: "news", label: "Animal news search", state: "live", detail: `${feeds.length} live US-focused animal, zoo, rescue and species discovery feeds`, itemCount: items.length } };
   } catch (error) {
     return { items: [], status: { key: "news", label: "Google News", state: "error", detail: errorMessage(error), itemCount: 0 } };
   }
@@ -368,6 +369,8 @@ function kymReaderEditorials(markdown: string, subcategory: "Trending" | "New en
   return items;
 }
 
+// Legacy adapter retained so older stored payload fixtures remain parse-compatible; animal-only builds never invoke it.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function collectKnowYourMeme(): Promise<CollectorResult> {
   const observedAt = Date.now();
   const surfaces = [
@@ -453,6 +456,7 @@ async function collectKnowYourMeme(): Promise<CollectorResult> {
 
 type HnItem = { id: number; title?: string; url?: string; time?: number; score?: number; descendants?: number; type?: string };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function collectHackerNews(): Promise<CollectorResult> {
   try {
     const ids = await fetchJson<number[]>("https://hacker-news.firebaseio.com/v0/topstories.json");
@@ -521,24 +525,37 @@ function xCountQuery(trendName: string) {
 
 async function collectPublisherNews(): Promise<CollectorResult> {
   const feeds = [
-    { label: "NPR", url: "https://feeds.npr.org/1001/rss.xml", limit: 14, strength: 74 },
-    { label: "NPR Technology", url: "https://feeds.npr.org/1019/rss.xml", limit: 10, strength: 71 },
-    { label: "CBS News", url: "https://www.cbsnews.com/latest/rss/main", limit: 14, strength: 74 },
-    { label: "The New York Times", url: "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml", limit: 14, strength: 74 },
-    { label: "The Verge", url: "https://www.theverge.com/rss/index.xml", limit: 12, strength: 72 },
-    { label: "TechCrunch", url: "https://techcrunch.com/feed/", limit: 10, strength: 70 },
-    { label: "WIRED", url: "https://www.wired.com/feed/rss", limit: 10, strength: 70 },
     { label: "Mongabay", url: "https://news.mongabay.com/feed/", limit: 14, strength: 72 },
     { label: "Catster", url: "https://www.catster.com/feed/", limit: 10, strength: 69 },
+    { label: "Dogster", url: "https://www.dogster.com/feed/", limit: 10, strength: 69 },
+    { label: "American Kennel Club", url: "https://www.akc.org/feed/", limit: 12, strength: 70 },
+    { label: "The Dodo", url: "https://www.thedodo.com/rss.xml", limit: 14, strength: 71 },
     { label: "Smithsonian Science & Nature", url: "https://www.smithsonianmag.com/rss/science-nature/", limit: 12, strength: 71 },
     { label: "Audubon", url: "https://www.audubon.org/rss.xml", limit: 10, strength: 70 },
     { label: "National Wildlife Federation", url: "https://blog.nwf.org/feed/", limit: 10, strength: 68 },
+    { label: "World Wildlife Fund", url: "https://www.worldwildlife.org/stories/rss.xml", limit: 10, strength: 70 },
+    { label: "Defenders of Wildlife", url: "https://defenders.org/blog/feed", limit: 10, strength: 68 },
+    { label: "International Bird Rescue", url: "https://www.birdrescue.org/feed/", limit: 10, strength: 69 },
+    { label: "Marine Mammal Center", url: "https://www.marinemammalcenter.org/news/feed", limit: 10, strength: 70 },
+    { label: "San Diego Zoo Wildlife Alliance", url: "https://sandiegozoowildlifealliance.org/pressroom/rss.xml", limit: 12, strength: 74 },
+    { label: "Cincinnati Zoo", url: "https://cincinnatizoo.org/feed/", limit: 12, strength: 73 },
+    { label: "Oregon Zoo", url: "https://www.oregonzoo.org/news/feed", limit: 12, strength: 73 },
+    { label: "Point Defiance Zoo", url: "https://www.pdza.org/feed/", limit: 12, strength: 72 },
     { label: "Houston Zoo", url: "https://www.houstonzoo.org/feed/", limit: 12, strength: 72 },
     { label: "Woodland Park Zoo", url: "https://blog.zoo.org/feeds/posts/default?alt=rss", limit: 12, strength: 72 },
     { label: "Zoo Atlanta", url: "https://zooatlanta.org/feed/", limit: 12, strength: 72 },
     { label: "Denver Zoo Conservation Alliance", url: "https://denverzoo.org/feed/", limit: 12, strength: 72 },
     { label: "Lincoln Park Zoo", url: "https://www.lpzoo.org/feed/", limit: 12, strength: 72 },
     { label: "Phoenix Zoo", url: "https://www.phoenixzoo.org/feed/", limit: 12, strength: 72 },
+    { label: "Monterey Bay Aquarium", url: "https://www.montereybayaquarium.org/stories/feed", limit: 12, strength: 73 },
+    { label: "Georgia Aquarium", url: "https://www.georgiaaquarium.org/feed/", limit: 12, strength: 72 },
+    { label: "Shedd Aquarium", url: "https://www.sheddaquarium.org/stories/feed", limit: 12, strength: 72 },
+    { label: "New England Aquarium", url: "https://www.neaq.org/feed/", limit: 12, strength: 72 },
+    { label: "Smithsonian National Zoo", url: "https://nationalzoo.si.edu/rss.xml", limit: 12, strength: 74 },
+    { label: "San Antonio Zoo", url: "https://sazoo.org/feed/", limit: 12, strength: 72 },
+    { label: "Memphis Zoo", url: "https://www.memphiszoo.org/feed/", limit: 12, strength: 72 },
+    { label: "Maryland Zoo", url: "https://www.marylandzoo.org/feed/", limit: 12, strength: 72 },
+    { label: "Indianapolis Zoo", url: "https://www.indianapoliszoo.com/feed/", limit: 12, strength: 72 },
   ];
   const results = await Promise.allSettled(feeds.map((feed) => fetchText(feed.url, { headers: { Accept: "application/rss+xml,application/atom+xml,application/xml,text/xml" } }, 15_000)));
   const seen = new Set<string>();
@@ -549,7 +566,7 @@ async function collectPublisherNews(): Promise<CollectorResult> {
     feedEntries(result.value).slice(0, feed.limit).forEach((entry, index) => {
       const title = tag(entry, "title");
       const key = normalize(title);
-      if (!isUsefulTitle(title) || seen.has(key)) return;
+      if (!isUsefulTitle(title) || !isAnimalCandidate(`${title} ${feed.label}`) || seen.has(key)) return;
       const publishedText = tag(entry, "pubDate") || tag(entry, "published") || tag(entry, "updated");
       const publishedTime = new Date(publishedText || Date.now()).getTime();
       if (!Number.isFinite(publishedTime)) return;
@@ -567,6 +584,7 @@ async function collectPublisherNews(): Promise<CollectorResult> {
         strength: clamp(feed.strength - index * 0.55 - Math.min(9, ageHours / 10), 42, feed.strength),
         detail: `${feed.label} · direct publisher feed`,
         geography: "US-led publishers",
+        categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(`${title} ${feed.label}`) },
       });
     });
   });
@@ -577,7 +595,7 @@ async function collectPublisherNews(): Promise<CollectorResult> {
       key: "publisher",
       label: "Direct publishers",
       state: items.length ? "live" : "error",
-      detail: items.length ? `${feeds.length - failed}/${feeds.length} feeds live · includes 11 dedicated animal, wildlife and official zoo sources` : "Direct publisher feeds did not respond",
+      detail: items.length ? `${feeds.length - failed}/${feeds.length} animal, wildlife, rescue, zoo and aquarium feeds live` : "Direct animal publisher feeds did not respond",
       itemCount: items.length,
     },
   };
@@ -674,6 +692,7 @@ function safeExternalUrl(value?: string) {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function collectPumpFun(): Promise<PumpCollectorResult> {
   try {
     const html = await fetchText("https://pump.fun/explore", { headers: { Accept: "text/html,application/xhtml+xml" } }, 18_000);
@@ -737,6 +756,7 @@ function pumpAttentionWindows(base: number, counts?: WindowValues): WindowValues
   })) as WindowValues;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ coins: PumpCoin[]; xCoverage: number }> {
   const coins = seeds.map((coin): PumpCoin => {
     const relatedTrend = pumpTrendMatch(coin, trends);
@@ -782,10 +802,11 @@ async function enrichPumpCoins(seeds: PumpSeed[], trends: Trend[]): Promise<{ co
 }
 
 function xCandidatePriority(item: Candidate) {
-  const category = item.categoryHint?.category ?? categoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`, item.source === "publisher" || item.source === "news" || Boolean(item.relatedNews))[0];
-  const categoryBoost = category === "Memes" ? 105 : category === "Animals" ? 90 : category === "Technology" ? 75 : category === "Viral events" ? 55 : 25;
-  const sourceBoost = item.source === "kym" ? 24 : item.source === "publisher" ? 16 : item.source === "news" ? 10 : item.source === "google" ? 2 : 0;
-  return categoryBoost + sourceBoost + item.strength;
+  const freshnessHours = Math.max(0, (Date.now() - new Date(item.publishedAt).getTime()) / 3_600_000);
+  const freshnessBoost = Math.max(0, 24 - freshnessHours);
+  const viralBoost = animalSubcategoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`) === "Viral animals" ? 28 : 0;
+  const sourceBoost = item.source === "publisher" ? 18 : item.source === "news" ? 14 : item.source === "google" ? 3 : 0;
+  return 100 + viralBoost + sourceBoost + freshnessBoost + item.strength;
 }
 
 let ephemeralTwitterApiUsage: TwitterApiMonthlyUsage & { month: string } = { month: "", billablePosts: 0, queryCount: 0 };
@@ -794,6 +815,7 @@ function cachedTwitterApiItems(previousPayload: TrendsPayload | null | undefined
   if (!previousPayload) return [];
   const maxAgeMs = cacheHours * 60 * 60_000;
   return previousPayload.trends.flatMap((trend): Candidate[] => {
+    if (trend.category !== "Animals" || !isAnimalCandidate(`${trend.title} ${trend.evidence.map((item) => item.title).join(" ")}`)) return [];
     const metric = trend.platforms.x;
     const observedAt = new Date(metric?.observedAt ?? "").getTime();
     if (!metric || metric.scope !== "sample" || !Number.isFinite(observedAt) || now - observedAt > maxAgeMs) return [];
@@ -852,11 +874,8 @@ async function collectX(sourceCandidates: Candidate[], options: BuildTrendsOptio
   const priorTrends = options.previousPayload?.trends ?? [];
   const seen = new Set<string>();
   const rankedSeeds = [...sourceCandidates]
-    .filter((item) => item.source === "kym" || item.source === "publisher" || item.source === "news" || item.source === "google" || item.source === "hackernews")
-    .filter((item) => {
-      const category = item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0];
-      return category !== "Memes" || !isLowSignalMemeCollection(item.title);
-    })
+    .filter((item) => item.source === "publisher" || item.source === "news" || item.source === "google")
+    .filter((item) => isAnimalCandidate(`${item.title} ${item.relatedNews?.title ?? ""}`))
     .filter((item) => {
       const key = normalize(shortTrendTitle(item.title));
       if (!key || seen.has(key)) return false;
@@ -872,12 +891,12 @@ async function collectX(sourceCandidates: Candidate[], options: BuildTrendsOptio
       return Number(aPrior) - Number(bPrior) || xCandidatePriority(b) - xCandidatePriority(a);
     });
 
-  const categoryCycle = ["Memes", "Animals", "Technology", "Viral events", "News"];
+  const categoryCycle = ["Viral animals", "Zoo babies", "Rescues", "Cats", "Dogs", "Wildlife"];
   const slot = Math.floor(now / (intervalMinutes * 60_000));
   const targets: Candidate[] = [];
   for (let index = 0; index < runLimit; index += 1) {
     const preferred = categoryCycle[(slot + index) % categoryCycle.length];
-    const candidate = rankedSeeds.find((item) => !targets.includes(item) && (item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0]) === preferred)
+    const candidate = rankedSeeds.find((item) => !targets.includes(item) && animalSubcategoryFor(`${item.title} ${item.relatedNews?.title ?? ""}`) === preferred)
       ?? rankedSeeds.find((item) => !targets.includes(item));
     if (!candidate) break;
     targets.push(candidate);
@@ -904,7 +923,7 @@ async function collectX(sourceCandidates: Candidate[], options: BuildTrendsOptio
       strength: clamp(Math.round(42 + Math.log10(sample.engagement + 1) * 10 + Math.min(10, sample.authorCount)), 40, 94),
       detail: `${sample.postCount} matched posts · ${sample.authorCount} authors · sample, not platform-wide count`,
       geography: "US-seeded · English X",
-      categoryHint: target.categoryHint,
+      categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(target.title) },
       platform: {
         key: "x",
         metric: { label: "X sampled posts", metric: "posts", scope: "sample", windows: sample.windows, detail: "Up to 20 public posts from a 24-hour TwitterAPI.io search; not a platform-wide count", observedAt: sample.observedAt },
@@ -949,6 +968,7 @@ async function collectYouTube(): Promise<CollectorResult> {
     responses.forEach((response, regionIndex) => {
       for (const video of response.items ?? []) {
         if (seen.has(video.id)) continue;
+        if (!isAnimalCandidate(video.snippet.title)) continue;
         seen.add(video.id);
         const views = Number(video.statistics?.viewCount ?? 0);
         const ageHours = Math.max(1, (Date.now() - new Date(video.snippet.publishedAt).getTime()) / 3_600_000);
@@ -964,6 +984,7 @@ async function collectYouTube(): Promise<CollectorResult> {
           strength: clamp(28 + Math.log10(velocity + 1) * 15, 25, 96),
           detail: `${views.toLocaleString()} views · ${regions[regionIndex]}`,
           geography: regions[regionIndex],
+          categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(video.snippet.title) },
         });
       }
     });
@@ -1007,10 +1028,10 @@ async function collectTikTok(sourceCandidates: Candidate[]): Promise<CollectorRe
     const queryLimit = clamp(Number(runtime.TIKTOK_QUERY_LIMIT ?? 6) || 6, 1, 12);
     const postsPerQuery = clamp(Number(runtime.TIKTOK_POSTS_PER_QUERY ?? 20) || 20, 5, 50);
     const automatic = sourceCandidates
-      .filter((item) => item.source === "x" || item.source === "google")
+      .filter((item) => (item.source === "x" || item.source === "google" || item.source === "news") && isAnimalCandidate(item.title))
       .slice(0, Math.ceil(queryLimit / 2))
       .map((item) => ({ title: item.title, query: shortSearchQuery(item.title) }));
-    const manual = (runtime.TIKTOK_SEED_QUERIES || "viral,cute animal,meme,challenge")
+    const manual = (runtime.TIKTOK_SEED_QUERIES || "viral animal usa,viral pet usa,zoo baby viral,animal rescue viral,cute animals usa,wildlife caught on camera")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)
@@ -1060,7 +1081,8 @@ async function collectTikTok(sourceCandidates: Candidate[]): Promise<CollectorRe
         activity: Math.max(1, plays + engagement * 8),
         strength: clamp(34 + Math.log10(plays + engagement * 8 + 1) * 10, 38, 96),
         detail: `${posts.length} matched posts sampled · ${plays.toLocaleString()} plays · “${example}”`,
-        geography: "Global",
+        geography: "US-seeded",
+        categoryHint: { category: "Animals", subcategory: animalSubcategoryFor(`${seed.title} ${example}`) },
         platform: {
           key: "tiktok",
           metric: { label: "TikTok matched posts", metric: "posts", scope: "sample", windows: tiktokPostWindows(posts), detail: `Sample of up to ${postsPerQuery} keyword matches via Bright Data` },
@@ -1106,6 +1128,7 @@ function isPromotionalMemeEntry(title: string) {
     || /\b(?:buy|download)\s+(?:followers|likes|views|apk|software)\b/i.test(title);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isSpecificMemeHeadline(title: string) {
   const normalized = normalize(title);
   if (normalized === "meme" || normalized === "memes" || isLowSignalMemeCollection(title) || isPromotionalMemeEntry(title)) return false;
@@ -1207,7 +1230,35 @@ function similar(left: string, right: string) {
   return (shorter <= 3 && intersection === shorter) || intersection / union >= 0.42;
 }
 
+const animalTerms = /\b(?:animal|animals|wildlife|zoo|aquarium|pet|pets|veterinarian|veterinary|shelter|catster|dogster|canine|feline|cat|cats|kitten|kittens|dog|dogs|puppy|puppies|bear|bears|panda|grizzly|polar bear|bird|birds|avian|crow|eagle|owl|parrot|penguin|flamingo|duck|goose|falcon|kagu|whale|shark|dolphin|porpoise|octopus|seal|orca|manatee|sea turtle|otter|hippo|capybara|elephant|lion|tiger|leopard|cheetah|jaguar|fox|wolf|coyote|monkey|gorilla|chimpanzee|orangutan|lemur|primate|rabbit|hare|deer|moose|elk|bison|horse|pony|donkey|cow|cattle|goat|sheep|pig|piglet|snake|alligator|crocodile|turtle|tortoise|lizard|iguana|reptile|frog|toad|rhino|rhinoceros|giraffe|zebra|koala|kangaroo|wombat|platypus|sloth|anteater|armadillo|raccoon|skunk|badger|beaver|squirrel|hamster|guinea pig|mouse|mice|rat|ferret|hedgehog|bat|butterfly|bee|insect)\b/i;
+const animalContext = /\b(?:born|birth|newborn|baby|cub|calf|chick|hatch|hatched|nest|herd|flock|pack|paws?|fur|feathers?|wings?|habitat|species|endangered|conservation|rescue|rescued|rehabilitat|adopted|adoption|released|sanctuary|keeper|keepers|veterinar|migration|breeding|wild)\b/i;
+const nonAnimalContext = /\b(?:mlb|nba|nfl|nhl|ncaa|baseball|football|basketball|hockey|soccer|pitcher|outfielder|shortstop|home run|touchdown|election|voter|congress|senate|governor|federal|government|stock|stocks|market|shares|earnings|crypto|token|car|vehicle|software|browser|network|commander)\b/i;
+
+function isAnimalCandidate(title: string) {
+  if (!animalTerms.test(title)) return false;
+  if (/\b(?:fox news|bear market|bull market|pete crow[- ]armstrong|chicago cubs|detroit tigers|jacksonville jaguars|miami dolphins|philadelphia eagles|memphis grizzlies|toronto raptors|arizona cardinals)\b/i.test(title)) return false;
+  if (nonAnimalContext.test(title) && !animalContext.test(title) && !/\b(?:zoo|aquarium|wildlife|animal|animals|pet|pets)\b/i.test(title)) return false;
+  return true;
+}
+
+function animalSubcategoryFor(title: string) {
+  if (/\b(?:viral|goes viral|going viral|internet sensation|internet star|social media|tiktok|instagram|caught on camera|wins the internet|moo deng)\b/i.test(title)) return "Viral animals";
+  if (/\b(?:zoo|aquarium|wildlife park)\b/i.test(title) && /\b(?:baby|newborn|born|birth|cub|calf|chick|hatch|hatched)\b/i.test(title)) return "Zoo babies";
+  if (/\b(?:rescue|rescued|rehabilitat|adopted|adoption|shelter|sanctuary|released back|saved)\b/i.test(title)) return "Rescues";
+  if (/\b(?:endangered|threatened|extinct|extinction|conservation|population decline|habitat loss)\b/i.test(title)) return "Endangered";
+  if (/\b(?:cat|cats|kitten|kittens|feline|tabby|catster)\b/i.test(title)) return "Cats";
+  if (/\b(?:dog|dogs|puppy|puppies|canine|pup|dogster|kennel club)\b/i.test(title)) return "Dogs";
+  if (/\b(?:bear|bears|polar bear|panda|grizzly)\b/i.test(title)) return "Bears";
+  if (/\b(?:bird|birds|avian|crow|eagle|owl|parrot|penguin|flamingo|duck|goose|falcon|kagu)\b/i.test(title)) return "Birds";
+  if (/\b(?:whale|shark|dolphin|porpoise|octopus|seal|orca|manatee|sea turtle|otter|aquarium|marine)\b/i.test(title)) return "Marine life";
+  if (/\b(?:monkey|gorilla|chimpanzee|orangutan|lemur|primate|ape)\b/i.test(title)) return "Primates";
+  if (/\b(?:snake|alligator|crocodile|turtle|tortoise|lizard|iguana|reptile|frog|toad)\b/i.test(title)) return "Reptiles";
+  if (/\b(?:horse|pony|donkey|cow|cattle|goat|sheep|pig|piglet|farm animal)\b/i.test(title)) return "Farm animals";
+  return "Wildlife";
+}
+
 function categoryFor(title: string, hasPublisherContext = false): [string, string] {
+  if (isAnimalCandidate(title)) return ["Animals", animalSubcategoryFor(title)];
   const text = normalize(title);
   const wordSet = new Set(text.split(/\s+/));
   const match = (values: string[]) => values.some((value) => value.includes(" ") ? text.includes(value) : wordSet.has(value));
@@ -1289,18 +1340,21 @@ function buildTrend(cluster: Candidate[]): Trend {
   const usObservationCount = cluster.filter((item) => item.geography.startsWith("US")).length;
   const marketAdjustment = usObservationCount > 0 ? Math.min(10, 6 + usObservationCount * 2) : -10;
   const leaderStrength = leader.strength * sourcePriorityWeight(leader.source);
-  const baseScore = clamp(Math.round(leaderStrength * 0.72 + Math.min(18, diversity * 5) + Math.min(10, cluster.length * 1.5) + marketAdjustment), 18, 99);
+  const freshnessBoost = ageMinutes <= 60 ? 12 : ageMinutes <= 360 ? 8 : ageMinutes <= 1440 ? 3 : -5;
+  const socialBoost = cluster.some((item) => item.source === "x" || item.source === "tiktok") ? 9 : 0;
+  const viralAnimalBoost = subcategory === "Viral animals" ? 7 : 0;
+  const baseScore = clamp(Math.round(leaderStrength * 0.68 + Math.min(18, diversity * 5) + Math.min(10, cluster.length * 1.5) + marketAdjustment + freshnessBoost + socialBoost + viralAnimalBoost), 18, 99);
   const saturation = clamp(Math.round(ageMinutes / 30 + cluster.length * 4 + Math.max(0, baseScore - 75)), 6, 96);
   let phase: Phase = ageMinutes < 150 && saturation < 42 ? "Igniting" : ageMinutes < 720 && saturation < 68 ? "Accelerating" : saturation > 82 || ageMinutes > 1440 ? "Cooling" : "Peaking";
   if (baseScore < 45 && ageMinutes > 480) phase = "Cooling";
   const forecastTime = phase === "Igniting" ? "30–90 min" : phase === "Accelerating" ? "1–3 hours" : phase === "Peaking" ? "30–120 min" : "Now";
   const forecast = phase === "Igniting"
-    ? "The breakout window is opening. A second independent source would materially increase the odds of a wider run."
+    ? "The animal story is entering its breakout window. A second large account, fresh video angle or publisher pickup would materially increase its reach."
     : phase === "Accelerating"
-      ? "Attention is broadening. Watch for publisher pickup or a creator remix wave before the next check."
+      ? "Attention is broadening. Watch for a named-animal hook, follow-up clip or major publisher pickup before the next check."
       : phase === "Peaking"
-        ? "The first attention peak is close. A verified update or reusable format is the clearest path to a second wave."
-        : "The signal is losing freshness. Residual reposts are more likely than a new creator wave.";
+        ? "The first attention peak is close. A verified update, new footage or keeper/rescuer follow-up is the clearest path to a second wave."
+        : "The story is losing freshness. Residual reposts are more likely than a new animal-news wave.";
   const weights = new Map<string, number>();
   for (const item of cluster) weights.set(item.source, (weights.get(item.source) ?? 0) + item.strength * sourcePriorityWeight(item.source));
   const weightTotal = [...weights.values()].reduce((sum, value) => sum + value, 0) || 1;
@@ -1342,10 +1396,10 @@ function buildTrend(cluster: Candidate[]): Trend {
     forecast,
     forecastTime,
     confidence: clamp(52 + diversity * 9 + Math.min(12, cluster.length * 2), 55, 91),
-    summary: `${leader.title.replace(/[.!?]+$/, "")}. ${platforms.x ? `X recorded ${platforms.x.windows["24h"].toLocaleString()} original posts in the last 24 hours` : `Front Run found ${cluster.length} recent observation${cluster.length === 1 ? "" : "s"}`} across ${diversity} measured ${diversity === 1 ? "source" : "sources"}.`,
+    summary: `${leader.title.replace(/[.!?]+$/, "")}. ${platforms.x ? `The latest X sample found ${platforms.x.windows["24h"].toLocaleString()} matching posts in the last 24 hours` : `Front Run found ${cluster.length} recent animal-news observation${cluster.length === 1 ? "" : "s"}`} across ${diversity} measured ${diversity === 1 ? "source" : "sources"}.`,
     signals: [
-      `${cluster.length} independent observations in this cluster`,
-      `${diversity} measured source ${diversity === 1 ? "surface" : "surfaces"}`,
+      `${cluster.length} animal-news observations in this cluster`,
+      `${diversity} measured animal source ${diversity === 1 ? "surface" : "surfaces"}`,
       saturation < 35 ? "Low current saturation" : saturation > 75 ? "Attention is becoming saturated" : "Audience breadth is still expanding",
     ],
     tags: keywords.map((keyword) => `#${keyword}`),
@@ -1360,18 +1414,12 @@ function buildTrend(cluster: Candidate[]): Trend {
   };
 }
 
-const TOTAL_TREND_LIMIT = 250;
-const ANIMAL_TREND_RESERVE = 40;
-const ANIMAL_TREND_LIMIT = 50;
-const MEME_TREND_RESERVE = 18;
-const MEME_TREND_LIMIT = 24;
+const TOTAL_TREND_LIMIT = 180;
+const PER_ANIMAL_CATEGORY_RESERVE = 8;
 
 function clusterCandidates(items: Candidate[]) {
   const clusters: Candidate[][] = [];
-  const filteredItems = items.filter((item) => {
-    const category = item.categoryHint?.category ?? categoryFor(item.title, item.source === "publisher" || item.source === "news")[0];
-    return category !== "Memes" || item.source === "kym" || isSpecificMemeHeadline(item.title);
-  });
+  const filteredItems = items.filter((item) => isAnimalCandidate(`${item.title} ${item.relatedNews?.title ?? ""}`));
   for (const item of [...filteredItems].sort((a, b) => b.strength - a.strength)) {
     const existing = clusters.find((cluster) => cluster.some((candidate) => similar(candidate.title, item.title)));
     if (existing) existing.push(item);
@@ -1379,49 +1427,22 @@ function clusterCandidates(items: Candidate[]) {
   }
   const ranked = clusters
     .map(buildTrend)
-    .filter((trend) => trend.category !== "Memes" || !trend.evidence.some((item) => isLowSignalMemeCollection(item.title)))
-    .sort((a, b) => b.score["30m"] - a.score["30m"]);
-  const balancedAnimals = new Map<string, Trend>();
-  for (const subcategory of ["Cats", "Dogs", "Bears", "Birds", "Marine"]) {
-    for (const trend of ranked.filter((candidate) => candidate.category === "Animals" && candidate.subcategory === subcategory).slice(0, 6)) balancedAnimals.set(trend.id, trend);
+    .filter((trend) => trend.category === "Animals")
+    .sort((a, b) => {
+      const freshnessA = new Date(a.latestSourceAt ?? 0).getTime();
+      const freshnessB = new Date(b.latestSourceAt ?? 0).getTime();
+      return b.score["30m"] - a.score["30m"] || freshnessB - freshnessA;
+    });
+  const selected = new Map<string, Trend>();
+  for (const taxonomy of TREND_TAXONOMY[0].subcategories) {
+    for (const trend of ranked.filter((candidate) => candidate.subcategory === taxonomy).slice(0, PER_ANIMAL_CATEGORY_RESERVE)) {
+      selected.set(trend.id, trend);
+    }
   }
-  for (const trend of ranked.filter((candidate) => candidate.category === "Animals")) {
-    if (balancedAnimals.size >= ANIMAL_TREND_RESERVE) break;
-    balancedAnimals.set(trend.id, trend);
-  }
-  const balancedMemes = new Map<string, Trend>();
-  const freshMemeCutoff = Date.now() - 24 * 60 * 60_000;
-  const freshMemes = ranked.filter((candidate) => candidate.category === "Memes" && new Date(candidate.latestSourceAt ?? 0).getTime() >= freshMemeCutoff);
-  for (const subcategory of ["Trending", "New entries", "Resurgences", "Formats"]) {
-    for (const trend of freshMemes.filter((candidate) => candidate.subcategory === subcategory).slice(0, 4)) balancedMemes.set(trend.id, trend);
-  }
-  for (const trend of freshMemes) {
-    if (balancedMemes.size >= MEME_TREND_RESERVE) break;
-    balancedMemes.set(trend.id, trend);
-  }
-  for (const subcategory of ["Trending", "New entries", "Resurgences", "Formats"]) {
-    for (const trend of ranked.filter((candidate) => candidate.category === "Memes" && candidate.subcategory === subcategory).slice(0, 2)) balancedMemes.set(trend.id, trend);
-  }
-  for (const trend of ranked.filter((candidate) => candidate.category === "Memes")) {
-    if (balancedMemes.size >= MEME_TREND_RESERVE) break;
-    balancedMemes.set(trend.id, trend);
-  }
-  const reserved = [
-    ...balancedAnimals.values(),
-    ...balancedMemes.values(),
-    ...ranked.filter((trend) => trend.category === "Technology").slice(0, 20),
-  ];
-  const selected = new Map(reserved.map((trend) => [trend.id, trend]));
-  let animalCount = [...selected.values()].filter((trend) => trend.category === "Animals").length;
-  let memeCount = [...selected.values()].filter((trend) => trend.category === "Memes").length;
   for (const trend of ranked) {
     if (selected.size >= TOTAL_TREND_LIMIT) break;
-    if (trend.category === "Animals" && animalCount >= ANIMAL_TREND_LIMIT) continue;
-    if (trend.category === "Memes" && memeCount >= MEME_TREND_LIMIT) continue;
     if (selected.has(trend.id)) continue;
     selected.set(trend.id, trend);
-    if (trend.category === "Animals") animalCount += 1;
-    if (trend.category === "Memes") memeCount += 1;
   }
   return [...selected.values()].sort((a, b) => b.score["30m"] - a.score["30m"]);
 }
@@ -1433,7 +1454,7 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
     return { trends, mode: "heuristic", status: { key: "analysis", label: "AI forecast", state: "needs-key", detail: "Add OPENAI_API_KEY for model-written classification and forecasts", itemCount: 0 } };
   }
   try {
-    const batch = trends.slice(0, 14).map((trend) => ({ id: trend.id, title: trend.title, category: trend.category, phase: trend.phase, score: trend.score["30m"], activity: trend.activity, sources: trend.sources, saturation: trend.saturation, evidence: trend.evidence.slice(0, 6).map((item) => `${item.source}: ${item.title} — ${item.detail}`) }));
+    const batch = trends.slice(0, 18).map((trend) => ({ id: trend.id, title: trend.title, category: trend.category, subcategory: trend.subcategory, phase: trend.phase, score: trend.score["30m"], activity: trend.activity, sources: trend.sources, saturation: trend.saturation, evidence: trend.evidence.slice(0, 6).map((item) => `${item.source}: ${item.title} — ${item.detail}`) }));
     const categoryNames = TREND_TAXONOMY.map((category) => category.name);
     const subcategoryNames = TREND_TAXONOMY.flatMap((category) => [...category.subcategories]);
     const schema = {
@@ -1462,7 +1483,7 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
         reasoning: { effort: "none" },
         max_output_tokens: 5_000,
         input: [
-          { role: "system", content: "You are Front Run's trend editor. For every signal: write a punchy 2–5 word trend name (maximum 42 characters) centered on the named animal, person, product, event or memorable hook—not the full publisher headline. Prefer names like ‘Moo Deng’s New Moment’ or ‘Jimothy the Raccoon,’ never sentence fragments. Write a factual one- or two-sentence summary of what happened and why attention is moving. Then classify and forecast the next likely attention event. Never invent facts, counts, sources, quotes, links, or identities; only use supplied evidence. Treat activity values from different sources as non-comparable observations. Sportspeople whose names contain animal words remain Sports." },
+          { role: "system", content: "You are Front Run's animal-news editor. Every supplied signal is an animal story. Write a punchy 2–5 word trend name (maximum 42 characters) centered on the named animal, species, zoo baby, rescue or memorable hook—not the full publisher headline. Prefer names like ‘Moo Deng’s New Moment’ or ‘Jimothy the Raccoon,’ never sentence fragments. Write a factual one- or two-sentence summary explaining what happened and why the animal is drawing attention. Keep category Animals and choose only the best supplied animal subcategory. Forecast the next likely attention event: a follow-up clip, official update, news pickup, remix wave or fade. Never invent facts, counts, sources, quotes, links or identities; only use supplied evidence. Treat source activity values as non-comparable observations." },
           { role: "user", content: JSON.stringify(batch) },
         ],
         text: { format: { type: "json_schema", name: "front_run_analysis", strict: true, schema } },
@@ -1483,24 +1504,18 @@ async function enrichWithOpenAI(trends: Trend[]): Promise<{ trends: Trend[]; mod
     const enriched = trends.map((trend) => {
       const analysis = analyses.get(trend.id);
       if (!analysis) return trend;
-      const taxonomyEntry = TREND_TAXONOMY.find((category) => category.name === analysis.category);
-      const validClassification = taxonomyEntry?.subcategories.some((subcategory) => subcategory === analysis.subcategory);
-      const lockDeterministicCategory = trend.category === "Memes" || trend.category === "Animals" || trend.category === "Technology" || trend.category === "Sports";
-      const category = !lockDeterministicCategory && validClassification ? analysis.category : trend.category;
-      const subcategory = !lockDeterministicCategory && validClassification ? analysis.subcategory : trend.subcategory;
-      return { ...trend, title: shortTrendTitle(analysis.title), category, subcategory, summary: analysis.summary.trim(), forecast: analysis.forecast.trim(), forecastTime: analysis.forecastTime, signals: analysis.signals, tone: toneFor(category) };
+      const validSubcategory = TREND_TAXONOMY[0].subcategories.some((subcategory) => subcategory === analysis.subcategory);
+      const subcategory = validSubcategory ? analysis.subcategory : trend.subcategory;
+      return { ...trend, title: shortTrendTitle(analysis.title), category: "Animals", subcategory, summary: analysis.summary.trim(), forecast: analysis.forecast.trim(), forecastTime: analysis.forecastTime, signals: analysis.signals, tone: toneFor("Animals") };
     });
-    return { trends: enriched, mode: "openai", status: { key: "analysis", label: "AI forecast", state: "live", detail: `${runtime.OPENAI_MODEL || "gpt-5.6-luna"} short names, summaries and structured forecasts`, itemCount: Math.min(14, trends.length) } };
+    return { trends: enriched, mode: "openai", status: { key: "analysis", label: "Animal forecast", state: "live", detail: `${runtime.OPENAI_MODEL || "gpt-5.6-luna"} animal names, summaries and structured forecasts`, itemCount: Math.min(18, trends.length) } };
   } catch (error) {
     return { trends, mode: "heuristic", status: { key: "analysis", label: "AI forecast", state: "error", detail: `Heuristic fallback · ${errorMessage(error)}`, itemCount: 0 } };
   }
 }
 
 export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot[]> = new Map(), options: BuildTrendsOptions = {}): Promise<TrendsPayload> {
-  const [publicCollectors, pumpCollector] = await Promise.all([
-    Promise.all([collectGoogleTrends(), collectGoogleNews(), collectKnowYourMeme(), collectPublisherNews(), collectHackerNews(), collectYouTube()]),
-    collectPumpFun(),
-  ]);
+  const publicCollectors = await Promise.all([collectGoogleTrends(), collectGoogleNews(), collectPublisherNews(), collectYouTube()]);
   const x = await collectX(publicCollectors.flatMap((collector) => collector.items), options);
   const coreCollectors = [...publicCollectors, x];
   const tiktok = await collectTikTok(coreCollectors.flatMap((collector) => collector.items));
@@ -1513,7 +1528,6 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
     ? new Map(options.previousPayload.trends.map((trend) => [trend.id, trend.firstSeenAt]))
     : new Map<string, string | undefined>();
   const trends = model.trends.map((trend) => applyHistory(trend, history.get(trend.id) ?? [], now, previousFirstSeen.get(trend.id))).sort((a, b) => b.score["30m"] - a.score["30m"]);
-  const pump = await enrichPumpCoins(pumpCollector.coins, trends);
   const categories = TREND_TAXONOMY.map((category) => ({
     name: category.name,
     count: trends.filter((trend) => trend.category === category.name).length,
@@ -1545,9 +1559,8 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
     return true;
   });
   const selectedNews = new Map<string, Candidate>();
-  for (const item of uniquePublisherNews.filter((candidate) => categoryFor(candidate.title, true)[0] === "Animals").slice(0, 5)) selectedNews.set(normalize(item.title), item);
   for (const item of uniquePublisherNews) {
-    if (selectedNews.size >= 10) break;
+    if (selectedNews.size >= 12) break;
     selectedNews.set(normalize(item.title), item);
   }
   const news: NewsItem[] = publisherNews.length
@@ -1556,9 +1569,6 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
   const sourceStatuses = collectors.map((collector) => {
     if (collector.status.key === "news" && collector.status.state === "error" && embeddedNews.length) {
       return { key: "news", label: "Trend-linked news", state: "live", detail: `Google News unavailable; using ${embeddedNews.length} publisher stories embedded in Google Trends`, itemCount: embeddedNews.length } as SourceStatus;
-    }
-    if (collector.status.key === "x" && pump.xCoverage) {
-      return { ...collector.status, detail: `${collector.status.detail} · Pump.fun cross-checks for ${pump.xCoverage} coins` };
     }
     return collector.status;
   });
@@ -1573,7 +1583,6 @@ export async function buildTrendsPayload(history: Map<string, HistoricalSnapshot
     trends,
     categories,
     news,
-    pumpCoins: pump.coins,
-    sources: [...sourceStatuses, pumpCollector.status, model.status],
+    sources: [...sourceStatuses, model.status],
   };
 }
